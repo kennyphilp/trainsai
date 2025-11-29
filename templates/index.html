@@ -23,7 +23,7 @@
             border-radius: 12px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
             text-align: center;
-            max-width: 500px;
+            max-width: 700px;
         }
 
         h1 {
@@ -55,14 +55,127 @@
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
         }
+
+        .features {
+            text-align: left;
+            margin: 30px 0;
+            padding: 0;
+        }
+
+        .feature-section {
+            margin-bottom: 25px;
+        }
+
+        .feature-section h3 {
+            color: #667eea;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .feature-section ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .feature-section li {
+            color: #555;
+            font-size: 0.95em;
+            padding: 6px 0 6px 24px;
+            position: relative;
+        }
+
+        .feature-section li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 25px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
     </style>
 </head>
 
 <body>
     <div class="welcome-container">
         <h1>🚂 ScotRail Train Travel Advisor</h1>
-        <p>Your AI-powered assistant for Scottish train travel. Get real-time departure information, service updates,
-            and travel advice.</p>
+        <p>Your AI-powered assistant for Scottish train travel with comprehensive real-time and schedule-based capabilities.</p>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-number">10</div>
+                <div class="stat-label">AI Tools</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">3,267</div>
+                <div class="stat-label">UK Stations</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number">2</div>
+                <div class="stat-label">Data Sources</div>
+            </div>
+        </div>
+
+        <div class="features">
+            <div class="feature-section">
+                <h3>🔴 Real-Time Data</h3>
+                <ul>
+                    <li>Live departure and arrival boards</li>
+                    <li>Detailed train service information</li>
+                    <li>Network disruptions and incidents</li>
+                    <li>Station-specific messages</li>
+                    <li>Intelligent station name resolution</li>
+                </ul>
+            </div>
+
+            <div class="feature-section">
+                <h3>📅 Schedule Planning</h3>
+                <ul>
+                    <li>Query scheduled trains for any date</li>
+                    <li>Multi-leg journey planning</li>
+                    <li>Compare schedule vs actual times</li>
+                    <li>Find alternative routes when disrupted</li>
+                </ul>
+            </div>
+
+            <div class="feature-section">
+                <h3>🤖 AI Features</h3>
+                <ul>
+                    <li>Natural language conversation</li>
+                    <li>Context-aware tool selection</li>
+                    <li>Polite and helpful responses</li>
+                    <li>Powered by GPT-4o-mini</li>
+                </ul>
+            </div>
+        </div>
+
         <a href="/traintraveladvisor" class="btn">Start Chatting</a>
     </div>
 </body>
