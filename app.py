@@ -86,31 +86,29 @@ if not app.debug and not os.getenv('TESTING'):
 # Only enforces HTTPS in production environments
 HTTPS_ENABLED = os.getenv('HTTPS_ENABLED', 'true').lower() == 'true'
 testing_mode = os.getenv('TESTING', 'false').lower() == 'true' or app.config.get('TESTING', False)
+debug_mode = '--debug' in __import__('sys').argv or os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
 
-if not testing_mode and HTTPS_ENABLED:
-    # Check if we're in debug mode
-    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
-    if not debug_mode:
-        Talisman(
-            app,
-            force_https=True,
-            strict_transport_security=True,
-            strict_transport_security_max_age=31536000,  # 1 year
-            content_security_policy={
-                'default-src': ["'self'"],
-                'script-src': ["'self'", "'unsafe-inline'"],
-                'style-src': ["'self'", "'unsafe-inline'"],
-                'img-src': ["'self'", 'data:', 'https:'],
-                'connect-src': ["'self'", 'https://api.openai.com'],
-            },
-            content_security_policy_nonce_in=['script-src']
-        )
-        logger.info('HTTPS enforcement enabled with Talisman (strict transport security, CSP headers)')
-    else:
-        logger.info('HTTPS enforcement disabled (debug mode)')
+if not testing_mode and not debug_mode and HTTPS_ENABLED:
+    Talisman(
+        app,
+        force_https=True,
+        strict_transport_security=True,
+        strict_transport_security_max_age=31536000,  # 1 year
+        content_security_policy={
+            'default-src': ["'self'"],
+            'script-src': ["'self'", "'unsafe-inline'"],
+            'style-src': ["'self'", "'unsafe-inline'"],
+            'img-src': ["'self'", 'data:', 'https:'],
+            'connect-src': ["'self'", 'https://api.openai.com'],
+        },
+        content_security_policy_nonce_in=['script-src']
+    )
+    logger.info('HTTPS enforcement enabled with Talisman (strict transport security, CSP headers)')
 else:
     if testing_mode:
         logger.debug('HTTPS enforcement disabled (testing mode)')
+    elif debug_mode:
+        logger.info('HTTPS enforcement disabled (debug mode)')
     else:
         logger.info('HTTPS enforcement disabled by configuration (HTTPS_ENABLED=false)')
 
@@ -320,8 +318,10 @@ def health_check():
 
 
 if __name__ == '__main__':
-    # Flask server configuration from environment (production-safe defaults)
-    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+    import sys
+    
+    # Parse command line arguments
+    debug_mode = '--debug' in sys.argv or os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
     port = int(os.getenv('FLASK_PORT', '5001'))
     host = os.getenv('FLASK_HOST', '0.0.0.0')
     
