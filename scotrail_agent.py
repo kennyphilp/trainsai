@@ -8,9 +8,16 @@ extended with additional tools in the future.
 
 import os
 import json
+import logging
 from datetime import datetime
 from openai import OpenAI, APIError, BadRequestError, RateLimitError
 from dotenv import load_dotenv
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+    print("Warning: tiktoken not available. Token counting will use estimation.")
 from train_tools import TrainTools
 from timetable_parser import StationResolver
 from models import (
@@ -23,10 +30,15 @@ from models import (
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 # Constants
 MAX_CONVERSATION_HISTORY = 20  # Maximum number of messages to keep (excluding system prompt)
 MAX_TOKENS_PER_RESPONSE = 1000
-CONTEXT_WARNING_THRESHOLD = 100000  # Warn when approaching token limit
+CONTEXT_WARNING_THRESHOLD = 100000  # Warn when approaching token limit (for estimation)
+MAX_CONTEXT_TOKENS = 128000  # GPT-4o-mini context window
+SAFETY_MARGIN_TOKENS = 1000  # Keep 1000 tokens as buffer
 
 
 class ScotRailAgent:
@@ -252,8 +264,134 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
             "content": self.system_prompt
         })
         
-        # Track approximate token usage
-        self.approximate_tokens = len(self.system_prompt) // 4  # Rough estimate
+        # Initialize token encoder for accurate token counting
+        if TIKTOKEN_AVAILABLE:
+            try:
+                self.encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+                logger.info("Token encoder initialized for gpt-4o-mini")
+            except KeyError:
+                # Fallback to cl100k_base (GPT-4 encoding)
+                self.encoding = tiktoken.get_encoding("cl100k_base")
+                logger.info("Token encoder initialized with cl100k_base (fallback)")
+        else:
+            self.encoding = None
+            logger.warning("tiktoken not available, using token estimation")
+        
+        # Token limits
+        self.max_context_tokens = MAX_CONTEXT_TOKENS
+        self.max_response_tokens = MAX_TOKENS_PER_RESPONSE
+        self.safety_margin = SAFETY_MARGIN_TOKENS
+    
+    def count_tokens(self, messages: list) -> int:
+        """
+        Count tokens in conversation history using tiktoken.
+        
+        Args:
+            messages: List of message dictionaries
+            
+        Returns:
+            Accurate token count if tiktoken available, otherwise rough estimate
+        """
+        if not TIKTOKEN_AVAILABLE or self.encoding is None:
+            # Fallback to character-based estimation (1 token ≈ 4 characters)
+            total_chars = sum(
+                len(str(msg.get('content', ''))) +
+                len(json.dumps(msg.get('tool_calls', []))) +
+                len(str(msg.get('name', '')))
+                for msg in messages
+            )
+            return total_chars // 4
+        
+        num_tokens = 0
+        for message in messages:
+            # Every message has metadata overhead (role, etc.)
+            num_tokens += 4
+            
+            # Count tokens in content
+            if 'content' in message and message['content']:
+                num_tokens += len(self.encoding.encode(str(message['content'])))
+            
+            # Count tokens in tool calls
+            if 'tool_calls' in message and message['tool_calls']:
+                for tool_call in message['tool_calls']:
+                    num_tokens += len(self.encoding.encode(
+                        json.dumps(tool_call['function'])
+                    ))
+            
+            # Count tokens in function results
+            if message.get('role') == 'tool':
+                content = message.get('content', '')
+                num_tokens += len(self.encoding.encode(str(content)))
+            
+            # Count tokens in name field
+            if 'name' in message:
+                num_tokens += len(self.encoding.encode(message['name']))
+        
+        num_tokens += 2  # Every reply is primed with assistant role
+        return num_tokens
+    
+    def should_truncate(self) -> bool:
+        """
+        Check if conversation should be truncated based on token count.
+        
+        Returns:
+            True if conversation needs truncation, False otherwise
+        """
+        current_tokens = self.count_tokens(self.conversation_history)
+        available = self.max_context_tokens - self.max_response_tokens - self.safety_margin
+        
+        # Log token usage periodically
+        logger.debug(f"Token count: {current_tokens}/{available} "
+                    f"(limit: {self.max_context_tokens}, "
+                    f"response: {self.max_response_tokens}, "
+                    f"safety: {self.safety_margin})")
+        
+        if current_tokens > available:
+            logger.warning(f"Token limit approaching: {current_tokens}/{available} tokens used")
+            return True
+        
+        # Also warn when getting close (80% of available)
+        if current_tokens > available * 0.8:
+            logger.info(f"Token usage at 80%: {current_tokens}/{available} tokens")
+        
+        return False
+    
+    def _truncate_conversation(self) -> None:
+        """
+        Smart truncation that preserves:
+        1. System prompt (always keep)
+        2. Recent tool calls and their results (context for LLM)
+        3. Most recent user messages
+        
+        This maintains conversation coherence while staying under token limit.
+        """
+        if len(self.conversation_history) <= 1:
+            logger.debug("No truncation needed: only system prompt exists")
+            return  # Only system prompt, nothing to truncate
+        
+        system_prompt = self.conversation_history[0]
+        messages = self.conversation_history[1:]
+        
+        # Strategy: Keep last 15 messages (preserves ~3-4 turns with tool calls)
+        keep_count = 15
+        
+        if len(messages) <= keep_count:
+            logger.debug(f"No truncation needed: {len(messages)} messages <= {keep_count}")
+            return  # Already small enough
+        
+        # Keep the most recent messages
+        truncated = [system_prompt] + messages[-keep_count:]
+        
+        removed_count = len(self.conversation_history) - len(truncated)
+        tokens_before = self.count_tokens(self.conversation_history)
+        tokens_after = self.count_tokens(truncated)
+        
+        logger.info(f"Truncated conversation: removed {removed_count} messages, "
+                   f"kept {len(truncated)} messages. "
+                   f"Tokens: {tokens_before} → {tokens_after} "
+                   f"(saved {tokens_before - tokens_after} tokens)")
+        
+        self.conversation_history = truncated
     
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         """
@@ -379,18 +517,6 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
         except Exception as e:
             return f"Error executing {tool_name}: {str(e)}"
     
-    def _truncate_conversation_history(self):
-        """
-        Truncate conversation history to prevent context overflow.
-        Keeps system prompt and most recent messages.
-        """
-        if len(self.conversation_history) > MAX_CONVERSATION_HISTORY + 1:  # +1 for system prompt
-            # Keep system prompt (index 0) and recent messages
-            system_prompt = self.conversation_history[0]
-            recent_messages = self.conversation_history[-(MAX_CONVERSATION_HISTORY):]
-            self.conversation_history = [system_prompt] + recent_messages
-            print("\n[Info: Conversation history truncated to manage context length]\n")
-    
     def chat(self, user_message: str) -> str:
         """
         Send a message to the agent and get a response.
@@ -402,14 +528,22 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
             The agent's response as a string
         """
         try:
-            # Truncate history if needed before adding new message
-            self._truncate_conversation_history()
-            
             # Add user message to conversation history
             self.conversation_history.append({
                 "role": "user",
                 "content": user_message
             })
+            
+            # Proactive truncation check based on token count
+            if self.should_truncate():
+                logger.warning("Token limit approaching, truncating conversation proactively")
+                self._truncate_conversation()
+            
+            # Log current token usage
+            current_tokens = self.count_tokens(self.conversation_history)
+            logger.info(f"Chat request - Current tokens: {current_tokens}, "
+                       f"Messages: {len(self.conversation_history)}, "
+                       f"Using {'tiktoken' if TIKTOKEN_AVAILABLE else 'estimation'}")
             
             # Get response from OpenAI with tools
             response = self.client.chat.completions.create(
@@ -481,8 +615,8 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                 except BadRequestError as e:
                     if "context_length_exceeded" in str(e):
                         # Context overflow - truncate and retry once
-                        print("\n[Warning: Context limit reached, truncating conversation history...]\n")
-                        self._truncate_conversation_history()
+                        logger.warning("Context limit exceeded, truncating conversation history and retrying")
+                        self._truncate_conversation()
                         # Try one more time with truncated history
                         retry_response = self.client.chat.completions.create(
                             model=self.model,
@@ -516,7 +650,8 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                 # Remove the user message we just added
                 self.conversation_history.pop()
                 # Truncate history
-                self._truncate_conversation_history()
+                logger.warning("Context length exceeded on initial request, truncating")
+                self._truncate_conversation()
                 # Add user message back
                 self.conversation_history.append({
                     "role": "user",

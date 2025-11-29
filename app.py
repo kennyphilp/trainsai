@@ -17,6 +17,7 @@ import secrets
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
+from flask_talisman import Talisman
 from scotrail_agent import ScotRailAgent
 
 app = Flask(__name__)
@@ -80,6 +81,38 @@ if not app.debug and not os.getenv('TESTING'):
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
     logger.info('ScotRail Train Travel Advisor startup')
+
+# Configure HTTPS enforcement with Talisman (disabled in debug/testing mode)
+# Only enforces HTTPS in production environments
+HTTPS_ENABLED = os.getenv('HTTPS_ENABLED', 'true').lower() == 'true'
+testing_mode = os.getenv('TESTING', 'false').lower() == 'true' or app.config.get('TESTING', False)
+
+if not testing_mode and HTTPS_ENABLED:
+    # Check if we're in debug mode
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+    if not debug_mode:
+        Talisman(
+            app,
+            force_https=True,
+            strict_transport_security=True,
+            strict_transport_security_max_age=31536000,  # 1 year
+            content_security_policy={
+                'default-src': ["'self'"],
+                'script-src': ["'self'", "'unsafe-inline'"],
+                'style-src': ["'self'", "'unsafe-inline'"],
+                'img-src': ["'self'", 'data:', 'https:'],
+                'connect-src': ["'self'", 'https://api.openai.com'],
+            },
+            content_security_policy_nonce_in=['script-src']
+        )
+        logger.info('HTTPS enforcement enabled with Talisman (strict transport security, CSP headers)')
+    else:
+        logger.info('HTTPS enforcement disabled (debug mode)')
+else:
+    if testing_mode:
+        logger.debug('HTTPS enforcement disabled (testing mode)')
+    else:
+        logger.info('HTTPS enforcement disabled by configuration (HTTPS_ENABLED=false)')
 
 
 def validate_message_content(message: str) -> tuple[bool, str]:

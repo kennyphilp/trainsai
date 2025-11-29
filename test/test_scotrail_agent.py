@@ -363,10 +363,10 @@ class TestConversationManagement:
                 'content': f'Message {i}'
             })
         
-        agent._truncate_conversation_history()
+        agent._truncate_conversation()
         
-        # Should keep system prompt + MAX_CONVERSATION_HISTORY messages
-        assert len(agent.conversation_history) <= 21  # 1 system + 20 max
+        # Should keep system prompt + last 15 messages = 16 total
+        assert len(agent.conversation_history) == 16
         assert agent.conversation_history[0]['role'] == 'system'
     
     @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
@@ -382,9 +382,9 @@ class TestConversationManagement:
             })
         
         original_length = len(agent.conversation_history)
-        agent._truncate_conversation_history()
+        agent._truncate_conversation()
         
-        # Should not truncate
+        # Should not truncate (under 20 messages total)
         assert len(agent.conversation_history) == original_length
     
     @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
