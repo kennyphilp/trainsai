@@ -4,6 +4,10 @@ Flask Web Application for ScotRail Train Travel Advisor
 Provides a web-based chat interface for the ScotRail AI agent.
 """
 
+from collections import OrderedDict
+from datetime import datetime, timedelta
+from threading import Lock
+
 from flask import Flask, render_template, request, jsonify, session
 import secrets
 import os
@@ -12,20 +16,56 @@ from scotrail_agent import ScotRailAgent
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
 
-# Store agent instances per session
-agents = {}
+# Session management configuration
+MAX_SESSIONS = int(os.getenv('MAX_SESSIONS', '100'))
+SESSION_TTL_HOURS = int(os.getenv('SESSION_TTL_HOURS', '24'))
+
+# Store agent instances per session with LRU eviction
+agents = OrderedDict()
+session_metadata = {}  # Track last access time
+agents_lock = Lock()
+
+
+def _cleanup_expired_sessions():
+    """Remove sessions older than SESSION_TTL_HOURS."""
+    now = datetime.now()
+    expired = [
+        sid for sid, last_access in session_metadata.items()
+        if now - last_access > timedelta(hours=SESSION_TTL_HOURS)
+    ]
+    for sid in expired:
+        agents.pop(sid, None)
+        session_metadata.pop(sid, None)
 
 
 def get_or_create_agent(session_id):
-    """Get existing agent for session or create new one."""
-    if session_id not in agents:
+    """Get existing agent for session or create new one with LRU eviction."""
+    with agents_lock:
+        # Clean expired sessions
+        _cleanup_expired_sessions()
+        
+        # Update or create session
+        if session_id in agents:
+            # Move to end (most recently used)
+            agents.move_to_end(session_id)
+            session_metadata[session_id] = datetime.now()
+            return agents[session_id], None
+        
+        # Create new agent
         try:
+            if len(agents) >= MAX_SESSIONS:
+                # Remove oldest session (LRU eviction)
+                oldest_id, _ = agents.popitem(last=False)
+                session_metadata.pop(oldest_id, None)
+            
             agents[session_id] = ScotRailAgent()
+            session_metadata[session_id] = datetime.now()
+            return agents[session_id], None
+            
         except ValueError as e:
             return None, str(e)
         except Exception as e:
             return None, f"Failed to initialize agent: {str(e)}"
-    return agents[session_id], None
 
 
 @app.route('/')
