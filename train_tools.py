@@ -366,7 +366,7 @@ class TrainTools:
                     'message': 'DISRUPTIONS_API_KEY (or RDG_API_KEY) is not set in environment.'
                 }
             
-            headers = {'x-apikey': self.disruptions_api_key}
+            headers = {'x-apikey': self.disruptions_api_key, 'User-Agent': 'TrainTools/1.0'}
             response = requests.get(INCIDENTS_API_URL, headers=headers, timeout=10)
             response.raise_for_status()
 
