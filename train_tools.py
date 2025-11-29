@@ -28,10 +28,34 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Union
 
 import requests
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 from zeep import Client, Settings, xsd
 
 # Load environment variables
 load_dotenv()
+
+# ============================================================================
+# Response Models
+# ============================================================================
+
+class TrainDeparture(BaseModel):
+    """Model for a single train departure."""
+    std: str = Field(..., description="Scheduled Time of Departure")
+    etd: str = Field(..., description="Estimated Time of Departure")
+    destination: str = Field(..., description="Destination station name")
+    platform: str = Field(default="TBA", description="Platform number")
+    operator: str = Field(default="Unknown", description="Train operating company")
+
+class DepartureBoardResponse(BaseModel):
+    """Model for departure board API response."""
+    station: str = Field(..., description="Station name")
+    trains: List[TrainDeparture] = Field(default_factory=list, description="List of departing trains")
+    message: str = Field(..., description="Summary message")
+
+class DepartureBoardError(BaseModel):
+    """Model for departure board error response."""
+    error: str = Field(..., description="Error message")
+    message: str = Field(..., description="Detailed error description")
 
 # ============================================================================
 # Configuration Constants
@@ -137,7 +161,7 @@ class TrainTools:
     # ------------------------------------------------------------------------
 
     
-    def get_departure_board(self, station_code: str, num_rows: int = 10) -> Dict:
+    def get_departure_board(self, station_code: str, num_rows: int = 10) -> Union[DepartureBoardResponse, DepartureBoardError]:
         """
         Fetch basic departure board information for a station.
         
@@ -150,16 +174,14 @@ class TrainTools:
             num_rows: Maximum number of departures to return (default: 10)
         
         Returns:
-            Dictionary containing:
-                - station: Station name
-                - trains: List of departure records
-                - message: Summary text
-            On error: 'error' and 'message' keys
+            DepartureBoardResponse: Success response with station and trains data
+            DepartureBoardError: Error response with error details
                 
         Example:
             >>> board = tt.get_departure_board('EUS', num_rows=5)
-            >>> for train in board['trains']:
-            ...     print(f"{train['std']} to {train['destination']}")
+            >>> if isinstance(board, DepartureBoardResponse):
+            ...     for train in board.trains:
+            ...         print(f"{train.std} to {train.destination}")
         """
         try:
             client = self._create_soap_client()
@@ -175,25 +197,25 @@ class TrainTools:
             trains = []
             if hasattr(res, 'trainServices') and res.trainServices:
                 for service in res.trainServices.service:
-                    trains.append({
-                        'std': service.std,
-                        'etd': service.etd,
-                        'destination': self._extract_destination_name(service),
-                        'platform': getattr(service, 'platform', 'TBA'),
-                        'operator': getattr(service, 'operator', 'Unknown')
-                    })
+                    trains.append(TrainDeparture(
+                        std=service.std,
+                        etd=service.etd,
+                        destination=self._extract_destination_name(service),
+                        platform=getattr(service, 'platform', 'TBA'),
+                        operator=getattr(service, 'operator', 'Unknown')
+                    ))
 
-            return {
-                'station': res.locationName,
-                'trains': trains,
-                'message': f"Found {len(trains)} departing trains from {res.locationName}"
-            }
+            return DepartureBoardResponse(
+                station=res.locationName,
+                trains=trains,
+                message=f"Found {len(trains)} departing trains from {res.locationName}"
+            )
 
         except Exception as e:
-            return {
-                'error': str(e),
-                'message': f"Unable to fetch departure information: {str(e)}"
-            }
+            return DepartureBoardError(
+                error=str(e),
+                message=f"Unable to fetch departure information: {str(e)}"
+            )
 
     
     def get_next_departures_with_details(
@@ -468,31 +490,53 @@ class TrainTools:
     # Formatting & Display
     # ============================================================================
     
-    def format_departures(self, board_data: Dict) -> str:
+    def format_departures(self, board_data: Union[DepartureBoardResponse, DepartureBoardError, Dict]) -> str:
         """
         Format departure board data into readable text.
         
         Args:
-            board_data: Dictionary from get_departure_board()
+            board_data: DepartureBoardResponse, DepartureBoardError, or legacy Dict
         
         Returns:
             Formatted string with departure information table
         """
-        if 'error' in board_data:
+        # Handle error responses
+        if isinstance(board_data, DepartureBoardError):
+            return board_data.message
+        if isinstance(board_data, dict) and 'error' in board_data:
             return board_data['message']
 
-        if not board_data['trains']:
-            return f"No trains currently departing from {board_data['station']}"
+        # Handle success responses
+        if isinstance(board_data, DepartureBoardResponse):
+            if not board_data.trains:
+                return f"No trains currently departing from {board_data.station}"
 
-        output = f"\n📍 Departures from {board_data['station']}\n"
-        output += "=" * 70 + "\n"
-        output += f"{'STD':<8} {'ETD':<8} {'Destination':<30} {'Platform':<8} {'Operator':<15}\n"
-        output += "-" * 70 + "\n"
+            output = f"\n📍 Departures from {board_data.station}\n"
+            output += "=" * 70 + "\n"
+            output += f"{'STD':<8} {'ETD':<8} {'Destination':<30} {'Platform':<8} {'Operator':<15}\n"
+            output += "-" * 70 + "\n"
 
-        for train in board_data['trains']:
-            output += f"{train['std']:<8} {train['etd']:<8} {train['destination']:<30} {train['platform']:<8} {train['operator']:<15}\n"
+            for train in board_data.trains:
+                output += f"{train.std:<8} {train.etd:<8} {train.destination:<30} {train.platform:<8} {train.operator:<15}\n"
 
-        return output
+            return output
+        
+        # Legacy dict support
+        if isinstance(board_data, dict):
+            if not board_data.get('trains'):
+                return f"No trains currently departing from {board_data.get('station', 'Unknown')}"
+
+            output = f"\n📍 Departures from {board_data['station']}\n"
+            output += "=" * 70 + "\n"
+            output += f"{'STD':<8} {'ETD':<8} {'Destination':<30} {'Platform':<8} {'Operator':<15}\n"
+            output += "-" * 70 + "\n"
+
+            for train in board_data['trains']:
+                output += f"{train['std']:<8} {train['etd']:<8} {train['destination']:<30} {train['platform']:<8} {train['operator']:<15}\n"
+
+            return output
+        
+        return "Invalid board data format"
 
     def main(self) -> None:
         """
@@ -583,7 +627,7 @@ class TrainTools:
 _default_tools = TrainTools(ldb_token=LDB_TOKEN, wsdl=WSDL)
 
 
-def get_departure_board(station_code: str, num_rows: int = 10) -> Dict:
+def get_departure_board(station_code: str, num_rows: int = 10) -> Union[DepartureBoardResponse, DepartureBoardError]:
     """Module-level wrapper for TrainTools.get_departure_board()."""
     return _default_tools.get_departure_board(station_code, num_rows=num_rows)
 
@@ -603,7 +647,7 @@ def get_next_departures_with_details(
     )
 
 
-def format_departures(board_data: Dict) -> str:
+def format_departures(board_data: Union[DepartureBoardResponse, DepartureBoardError, Dict]) -> str:
     """Module-level wrapper for TrainTools.format_departures()."""
     return _default_tools.format_departures(board_data)
 

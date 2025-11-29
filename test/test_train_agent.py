@@ -139,12 +139,12 @@ class TestGetDepartureBoard:
         # Call function
         result = train_tools.get_departure_board('EUS', num_rows=10)
         
-        # Assert
-        assert result['station'] == 'Euston'
-        assert len(result['trains']) == 1
-        assert result['trains'][0]['std'] == '14:30'
-        assert result['trains'][0]['destination'] == 'Manchester'
-        assert 'error' not in result
+        # Assert - now checking Pydantic model
+        assert isinstance(result, train_tools.DepartureBoardResponse)
+        assert result.station == 'Euston'
+        assert len(result.trains) == 1
+        assert result.trains[0].std == '14:30'
+        assert result.trains[0].destination == 'Manchester'
     
     @patch('train_tools.Client')
     def test_get_departure_board_no_trains(self, mock_client_class):
@@ -160,9 +160,9 @@ class TestGetDepartureBoard:
         
         result = train_tools.get_departure_board('RMT')
         
-        assert result['station'] == 'Remote Station'
-        assert result['trains'] == []
-        assert 'error' not in result
+        assert isinstance(result, train_tools.DepartureBoardResponse)
+        assert result.station == 'Remote Station'
+        assert result.trains == []
     
     @patch('train_tools.Client')
     def test_get_departure_board_exception_handling(self, mock_client_class):
@@ -171,9 +171,10 @@ class TestGetDepartureBoard:
         
         result = train_tools.get_departure_board('EUS')
         
-        assert 'error' in result
-        assert 'Connection timeout' in result['message']
-        assert 'Unable to fetch departure information' in result['message']
+        assert isinstance(result, train_tools.DepartureBoardError)
+        assert result.error == 'Connection timeout'
+        assert 'Connection timeout' in result.message
+        assert 'Unable to fetch departure information' in result.message
     
     @patch('train_tools.Client')
     def test_get_departure_board_station_code_uppercase(self, mock_client_class):
@@ -247,7 +248,8 @@ class TestGetDepartureBoard:
         
         result = train_tools.get_departure_board('EUS')
         
-        assert result['trains'][0]['destination'] == 'Unknown'
+        assert isinstance(result, train_tools.DepartureBoardResponse)
+        assert result.trains[0].destination == 'Unknown'
     
     @patch('train_tools.Client')
     def test_get_departure_board_missing_platform(self, mock_client_class):
@@ -269,7 +271,8 @@ class TestGetDepartureBoard:
         
         result = train_tools.get_departure_board('EUS')
         
-        assert result['trains'][0]['platform'] == 'TBA'
+        assert isinstance(result, train_tools.DepartureBoardResponse)
+        assert result.trains[0].platform == 'TBA'
 
 
 class TestGetNextDeparturesWithDetails:
