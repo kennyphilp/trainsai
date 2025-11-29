@@ -74,3 +74,5 @@ logs/
 .DS_Store
 Thumbs.db
 logs/
+# Timetable data files (too large for git)
+timetable/*.txt
