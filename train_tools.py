@@ -212,7 +212,7 @@ class TrainTools:
             'operator': operator if operator is not None else 'Unknown',
             'service_id': service_id if service_id is not None else 'N/A',
             'service_type': service_type if service_type is not None else 'Unknown',
-            'length': length if length is not None else 'Unknown',
+            'length': str(length) if length is not None else 'Unknown',
             'is_cancelled': is_cancelled if is_cancelled is not None else False,
             'cancel_reason': getattr(service, 'cancelReason', None),
             'delay_reason': getattr(service, 'delayReason', None),
