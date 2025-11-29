@@ -14,10 +14,31 @@ import os
 
 from flask import Flask, render_template, request, jsonify, session
 import secrets
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from scotrail_agent import ScotRailAgent
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
+
+# Configure rate limiting
+RATE_LIMIT_CHAT = os.getenv('RATE_LIMIT_CHAT', '10 per minute')
+RATE_LIMIT_HEALTH = os.getenv('RATE_LIMIT_HEALTH', '60 per minute')
+RATE_LIMIT_DEFAULT = os.getenv('RATE_LIMIT_DEFAULT', '100 per hour')
+
+# Initialize limiter - will be enabled/disabled based on runtime configuration
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=[],  # Set per-endpoint limits instead
+    storage_uri="memory://",
+    strategy="fixed-window"
+)
+
+def should_limit():
+    """Check if rate limiting should be applied (not in testing mode)."""
+    return not app.config.get('TESTING', False) and os.getenv('RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -122,6 +143,7 @@ def train_travel_advisor():
 
 
 @app.route('/api/chat', methods=['POST'])
+@limiter.limit(RATE_LIMIT_CHAT, exempt_when=lambda: app.config.get('TESTING', False))
 def chat():
     """Handle chat messages from the user."""
     start_time = time.time()
@@ -169,6 +191,7 @@ def chat():
 
 
 @app.route('/api/reset', methods=['POST'])
+@limiter.limit(RATE_LIMIT_CHAT, exempt_when=lambda: app.config.get('TESTING', False))
 def reset_conversation():
     """Reset the conversation history."""
     session_id = session.get('session_id', 'unknown')
@@ -195,6 +218,7 @@ def reset_conversation():
 
 
 @app.route('/api/health', methods=['GET'])
+@limiter.limit(RATE_LIMIT_HEALTH, exempt_when=lambda: app.config.get('TESTING', False))
 def health_check():
     """Health check endpoint."""
     logger.debug(f"Health check from {request.remote_addr}")
