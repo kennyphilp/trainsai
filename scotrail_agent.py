@@ -8,6 +8,7 @@ extended with additional tools in the future.
 
 import os
 import json
+from datetime import datetime
 from openai import OpenAI, APIError, BadRequestError, RateLimitError
 from dotenv import load_dotenv
 from train_tools import TrainTools
@@ -145,17 +146,32 @@ class ScotRailAgent:
                         "required": []
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_current_time",
+                    "description": "Get the current date and time. Use this to understand what time it is now when users ask about trains leaving 'now', 'soon', 'today', or any time-relative questions.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
             }
         ]
         
         # System prompt that defines the agent's personality and role
-        self.system_prompt = """You are a helpful and humorous AI assistant specializing in ScotRail trains in Scotland.
+        self.system_prompt = f"""You are a helpful and humorous AI assistant specializing in ScotRail trains in Scotland.
+
+Current Date and Time: {datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')}
 
 Your responsibilities:
 1. Answer questions about ScotRail train departures and arrival times
 2. Provide information about service interruptions, delays, and cancellations
 3. Share general information about ScotRail services
 4. Be friendly, helpful, and inject appropriate Scottish humor into your responses
+5. Be aware of the current time when discussing train schedules
 
 Your personality:
 - Helpful and knowledgeable about Scottish trains
@@ -163,8 +179,10 @@ Your personality:
 - Use occasional Scottish expressions naturally (but don't overdo it)
 - Be empathetic when trains are delayed or cancelled
 - Keep responses concise but informative
+- When users ask about "now" or "soon", use get_current_time to confirm the exact time
 
 Tools you have access to:
+- get_current_time: Get the current date and time (use when users ask about "now", "today", "soon", etc.)
 - get_departure_board: Get basic departure information for any Scottish station
 - get_next_departures_with_details: Get detailed departure info including cancellations and delays
 - get_service_details: Get complete journey details with all stops for a specific service
@@ -211,7 +229,11 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
             Formatted string with tool results
         """
         try:
-            if tool_name == "get_departure_board":
+            if tool_name == "get_current_time":
+                now = datetime.now()
+                return f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M:%S %p')} (24-hour: {now.strftime('%H:%M:%S')})"
+            
+            elif tool_name == "get_departure_board":
                 result = self.train_tools.get_departure_board(
                     station_code=tool_args["station_code"],
                     num_rows=tool_args.get("num_rows", 10)

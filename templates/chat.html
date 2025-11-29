@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScotRail Train Travel Advisor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #1e1e1e;
+            color: #cccccc;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 0;
+            margin-bottom: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        header h1 {
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            text-align: center;
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .chat-container {
+            background-color: #252526;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            min-height: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding: 10px;
+        }
+
+        .message-block {
+            margin-bottom: 25px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #2d2d30;
+            border-left: 4px solid #007acc;
+        }
+
+        .message-header {
+            font-weight: 600;
+            color: #4ec9b0;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .message-content {
+            background-color: #1e1e1e;
+            padding: 12px 15px;
+            border-radius: 6px;
+            color: #d4d4d4;
+            font-size: 1em;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border: 1px solid #3c3c3c;
+        }
+
+        .user-message .message-header {
+            color: #569cd6;
+        }
+
+        .user-message {
+            border-left-color: #569cd6;
+        }
+
+        .agent-message .message-header {
+            color: #4ec9b0;
+        }
+
+        .agent-message {
+            border-left-color: #4ec9b0;
+        }
+
+        .agent-message .message-content {
+            background-color: #1a1a1a;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #3c3c3c;
+            border-radius: 6px;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: inherit;
+            font-size: 1em;
+            resize: vertical;
+            min-height: 80px;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+
+        textarea:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .send-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .reset-btn {
+            background-color: #444;
+            color: white;
+        }
+
+        .reset-btn:hover {
+            background-color: #555;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 15px;
+            color: #4ec9b0;
+            font-style: italic;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .error-message {
+            background-color: #5a1d1d;
+            border-left-color: #f48771;
+            color: #f48771;
+        }
+
+        .info-banner {
+            background-color: #2d2d30;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4ec9b0;
+        }
+
+        .info-banner h3 {
+            color: #4ec9b0;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+
+        .info-banner ul {
+            list-style-position: inside;
+            color: #d4d4d4;
+        }
+
+        .info-banner li {
+            margin: 4px 0;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            .container {
+                padding: 10px;
+            }
+
+            .input-container {
+                flex-direction: column;
+            }
+
+            .button-group {
+                flex-direction: row;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>🚂 ScotRail Train Travel Advisor</h1>
+            <p>Your AI-powered assistant for Scottish train travel</p>
+        </header>
+
+        <div class="info-banner">
+            <h3>What I can help you with:</h3>
+            <ul>
+                <li>Check departure times from any Scottish station</li>
+                <li>Get detailed service information including all stops</li>
+                <li>View current delays, cancellations, and disruptions</li>
+                <li>Find out about engineering works and planned changes</li>
+            </ul>
+        </div>
+
+        <div class="chat-container">
+            <div class="messages-container" id="messagesContainer">
+                <div class="message-block agent-message">
+                    <div class="message-header">ScotRail Assistant</div>
+                    <div class="message-content">Hello! I'm your ScotRail train travel advisor. Ask me about train
+                        departures, service disruptions, or any questions about traveling on ScotRail. What would ye
+                        like to know?</div>
+                </div>
+            </div>
+
+            <div class="loading" id="loadingIndicator">
+                Thinking... 🤔
+            </div>
+
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <textarea id="userInput"
+                        placeholder="Type your question here... (e.g., 'When is the next train from Edinburgh to Glasgow?')"
+                        rows="3"></textarea>
+                </div>
+                <div class="button-group">
+                    <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
+                    <button class="reset-btn" id="resetBtn" onclick="resetConversation()">Reset</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const messagesContainer = document.getElementById('messagesContainer');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+
+        // Enable send on Enter (Shift+Enter for new line)
+        userInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            // Disable input and button
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            resetBtn.disabled = true;
+
+            // Add user message to chat
+            addMessage('user', message);
+
+            // Clear input
+            userInput.value = '';
+
+            // Show loading indicator
+            loadingIndicator.classList.add('active');
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ message: message })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    addMessage('agent', data.response);
+                } else {
+                    addMessage('error', data.error || 'An error occurred');
+                }
+            } catch (error) {
+                addMessage('error', 'Failed to connect to the server. Please try again.');
+                console.error('Error:', error);
+            } finally {
+                // Hide loading and re-enable input
+                loadingIndicator.classList.remove('active');
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                resetBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        function addMessage(type, content) {
+            const messageBlock = document.createElement('div');
+            messageBlock.className = `message-block ${type === 'user' ? 'user-message' : type === 'error' ? 'error-message' : 'agent-message'}`;
+
+            const header = document.createElement('div');
+            header.className = 'message-header';
+            header.textContent = type === 'user' ? 'You' : type === 'error' ? 'Error' : 'ScotRail Assistant';
+
+            const messageContent = document.createElement('div');
+            messageContent.className = 'message-content';
+            messageContent.textContent = content;
+
+            messageBlock.appendChild(header);
+            messageBlock.appendChild(messageContent);
+            messagesContainer.appendChild(messageBlock);
+
+            // Scroll to bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function resetConversation() {
+            if (!confirm('Are you sure you want to reset the conversation? This will clear all history.')) {
+                return;
+            }
+
+            resetBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Clear all messages except the first one
+                    messagesContainer.innerHTML = '';
+                    addMessage('agent', "Hello! I'm your ScotRail train travel advisor. Ask me about train departures, service disruptions, or any questions about traveling on ScotRail. What would ye like to know?");
+                    userInput.value = '';
+                } else {
+                    alert('Failed to reset conversation: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Failed to reset conversation. Please try again.');
+                console.error('Error:', error);
+            } finally {
+                resetBtn.disabled = false;
+            }
+        }
+
+        // Focus input on load
+        window.addEventListener('load', () => {
+            userInput.focus();
+        });
+    </script>
+</body>
+
+</html>
