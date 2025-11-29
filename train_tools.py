@@ -62,12 +62,12 @@ class DetailedTrainDeparture(BaseModel):
     std: str = Field(..., description="Scheduled Time of Departure")
     etd: str = Field(..., description="Estimated Time of Departure")
     destination: str = Field(..., description="Destination station name")
-    platform: str = Field(default="TBA", description="Platform number")
-    operator: str = Field(default="Unknown", description="Train operating company")
-    service_id: str = Field(default="N/A", description="Unique service identifier")
-    service_type: str = Field(default="Unknown", description="Type of service (e.g., Express, Stopping)")
-    length: str = Field(default="Unknown", description="Number of carriages")
-    is_cancelled: bool = Field(default=False, description="Whether the service is cancelled")
+    platform: Optional[str] = Field(default="TBA", description="Platform number")
+    operator: Optional[str] = Field(default="Unknown", description="Train operating company")
+    service_id: Optional[str] = Field(default="N/A", description="Unique service identifier")
+    service_type: Optional[str] = Field(default="Unknown", description="Type of service (e.g., Express, Stopping)")
+    length: Optional[str] = Field(default="Unknown", description="Number of carriages")
+    is_cancelled: Optional[bool] = Field(default=False, description="Whether the service is cancelled")
     cancel_reason: Optional[str] = Field(default=None, description="Reason for cancellation")
     delay_reason: Optional[str] = Field(default=None, description="Reason for delay")
 
@@ -79,6 +79,35 @@ class DetailedDeparturesResponse(BaseModel):
 
 class DetailedDeparturesError(BaseModel):
     """Model for detailed departures error response."""
+    error: str = Field(..., description="Error message")
+    message: str = Field(..., description="Detailed error description")
+
+class AffectedOperator(BaseModel):
+    """Model for an affected train operator."""
+    ref: Optional[str] = Field(default=None, description="Operator reference code")
+    name: Optional[str] = Field(default=None, description="Operator name")
+
+class Incident(BaseModel):
+    """Model for a service incident/disruption."""
+    id: Optional[str] = Field(default=None, description="Incident number")
+    category: str = Field(..., description="Incident category (planned/unplanned)")
+    severity: Optional[str] = Field(default=None, description="Incident priority/severity")
+    title: Optional[str] = Field(default=None, description="Incident summary")
+    message: Optional[str] = Field(default=None, description="Detailed incident description")
+    start_time: Optional[str] = Field(default=None, description="Incident start time")
+    end_time: Optional[str] = Field(default=None, description="Incident end time")
+    last_updated: Optional[str] = Field(default=None, description="Last update timestamp")
+    operators: List[AffectedOperator] = Field(default_factory=list, description="Affected operators")
+    routes_affected: Optional[str] = Field(default=None, description="Routes affected by incident")
+    is_planned: bool = Field(default=False, description="Whether incident is planned work")
+
+class StationMessagesResponse(BaseModel):
+    """Model for station messages/incidents API response."""
+    messages: List[Incident] = Field(default_factory=list, description="List of incidents")
+    message: str = Field(..., description="Summary message")
+
+class StationMessagesError(BaseModel):
+    """Model for station messages error response."""
     error: str = Field(..., description="Error message")
     message: str = Field(..., description="Detailed error description")
 
@@ -167,16 +196,24 @@ class TrainTools:
     
     def _build_train_detail_dict(self, service) -> Dict:
         """Build standardized train detail dictionary from service object."""
+        # Handle None values by providing defaults
+        platform = getattr(service, 'platform', None)
+        operator = getattr(service, 'operator', None)
+        service_id = getattr(service, 'serviceID', None)
+        service_type = getattr(service, 'serviceType', None)
+        length = getattr(service, 'length', None)
+        is_cancelled = getattr(service, 'isCancelled', None)
+        
         return {
             'std': service.std,
             'etd': service.etd,
             'destination': self._extract_destination_name(service),
-            'platform': getattr(service, 'platform', 'TBA'),
-            'operator': getattr(service, 'operator', 'Unknown'),
-            'service_id': getattr(service, 'serviceID', 'N/A'),
-            'service_type': getattr(service, 'serviceType', 'Unknown'),
-            'length': getattr(service, 'length', 'Unknown'),
-            'is_cancelled': getattr(service, 'isCancelled', False),
+            'platform': platform if platform is not None else 'TBA',
+            'operator': operator if operator is not None else 'Unknown',
+            'service_id': service_id if service_id is not None else 'N/A',
+            'service_type': service_type if service_type is not None else 'Unknown',
+            'length': length if length is not None else 'Unknown',
+            'is_cancelled': is_cancelled if is_cancelled is not None else False,
             'cancel_reason': getattr(service, 'cancelReason', None),
             'delay_reason': getattr(service, 'delayReason', None),
         }
@@ -379,7 +416,7 @@ class TrainTools:
     # Station Messages & Incidents
     # ============================================================================
     
-    def get_station_messages(self, station_code: Optional[str] = None) -> Dict:
+    def get_station_messages(self, station_code: Optional[str] = None) -> Union[StationMessagesResponse, StationMessagesError]:
         """
         Retrieve service disruption messages and incident information.
         
@@ -392,28 +429,27 @@ class TrainTools:
                          None returns all current incidents across the network.
         
         Returns:
-            Dictionary containing:
-                - messages: List of incident records with title, description,
-                           affected operators, routes, and timestamps
-                - message: Summary text with incident count
-            On error: 'error' and 'message' keys
+            StationMessagesResponse: Success response with list of incidents
+            StationMessagesError: Error response with error details
         
         Example:
             >>> # All network incidents
             >>> incidents = tt.get_station_messages()
-            >>> print(f"Total incidents: {len(incidents['messages'])}")
+            >>> if isinstance(incidents, StationMessagesResponse):
+            ...     print(f"Total incidents: {len(incidents.messages)}")
             >>> 
             >>> # Station-specific incidents
             >>> incidents = tt.get_station_messages('PAD')
-            >>> for msg in incidents['messages']:
-            ...     print(f"{msg['title']}: {msg['incident_description']}")
+            >>> if isinstance(incidents, StationMessagesResponse):
+            ...     for incident in incidents.messages:
+            ...         print(f"{incident.title}: {incident.message}")
         """
         try:
             if not self.disruptions_api_key:
-                return {
-                    'error': 'Missing API key',
-                    'message': 'DISRUPTIONS_API_KEY (or RDG_API_KEY) is not set in environment.'
-                }
+                return StationMessagesError(
+                    error='Missing API key',
+                    message='DISRUPTIONS_API_KEY (or RDG_API_KEY) is not set in environment.'
+                )
             
             headers = {'x-apikey': self.disruptions_api_key, 'User-Agent': 'TrainTools/1.0'}
             response = requests.get(INCIDENTS_API_URL, headers=headers, timeout=10)
@@ -423,30 +459,30 @@ class TrainTools:
             root = ET.fromstring(response.text)
             incidents = self._parse_incidents(root, station_code)
 
-            return {
-                'messages': incidents,
-                'message': f"Found {len(incidents)} incident(s)" + 
-                          (f" for station {station_code}" if station_code else " across the network")
-            }
+            return StationMessagesResponse(
+                messages=incidents,
+                message=f"Found {len(incidents)} incident(s)" + 
+                       (f" for station {station_code}" if station_code else " across the network")
+            )
 
         except requests.HTTPError as http_err:
             status = getattr(http_err.response, 'status_code', 'unknown')
-            return {
-                'error': f"HTTP {status}",
-                'message': f"Incidents feed request failed with status {status}: {http_err}"
-            }
+            return StationMessagesError(
+                error=f"HTTP {status}",
+                message=f"Incidents feed request failed with status {status}: {http_err}"
+            )
         except requests.RequestException as e:
-            return {
-                'error': str(e),
-                'message': f"Unable to fetch station messages: {str(e)}"
-            }
+            return StationMessagesError(
+                error=str(e),
+                message=f"Unable to fetch station messages: {str(e)}"
+            )
         except ET.ParseError as e:
-            return {
-                'error': str(e),
-                'message': f"Unable to parse station messages XML: {str(e)}"
-            }
+            return StationMessagesError(
+                error=str(e),
+                message=f"Unable to parse station messages XML: {str(e)}"
+            )
     
-    def _parse_incidents(self, root: ET.Element, station_filter: Optional[str]) -> List[Dict]:
+    def _parse_incidents(self, root: ET.Element, station_filter: Optional[str]) -> List[Incident]:
         """
         Parse incidents from XML with namespace handling.
         
@@ -455,7 +491,7 @@ class TrainTools:
             station_filter: Optional CRS code to filter by
         
         Returns:
-            List of incident dictionaries
+            List of Incident models
         """
         incidents = []
         
@@ -482,19 +518,22 @@ class TrainTools:
             planned_text = self._get_text(pt_incident.find('.//inc:Planned', INCIDENT_NAMESPACES))
             is_planned = planned_text == 'true' if planned_text else False
             
-            incident = {
-                'id': self._get_text(pt_incident.find('.//inc:IncidentNumber', INCIDENT_NAMESPACES)),
-                'category': 'planned' if is_planned else 'unplanned',
-                'severity': self._get_text(pt_incident.find('.//inc:IncidentPriority', INCIDENT_NAMESPACES)),
-                'title': self._get_text(pt_incident.find('.//inc:Summary', INCIDENT_NAMESPACES)),
-                'message': self._get_text(pt_incident.find('.//inc:Description', INCIDENT_NAMESPACES)),
-                'start_time': self._get_text(pt_incident.find('.//com:StartTime', INCIDENT_NAMESPACES)),
-                'end_time': self._get_text(pt_incident.find('.//com:EndTime', INCIDENT_NAMESPACES)),
-                'last_updated': self._get_text(pt_incident.find('.//com:LastChangedDate', INCIDENT_NAMESPACES)),
-                'operators': affected_ops,
-                'routes_affected': routes_affected,
-                'is_planned': is_planned
-            }
+            # Build Pydantic model for affected operators
+            operator_models = [AffectedOperator(ref=op['ref'], name=op['name']) for op in affected_ops]
+            
+            incident = Incident(
+                id=self._get_text(pt_incident.find('.//inc:IncidentNumber', INCIDENT_NAMESPACES)),
+                category='planned' if is_planned else 'unplanned',
+                severity=self._get_text(pt_incident.find('.//inc:IncidentPriority', INCIDENT_NAMESPACES)),
+                title=self._get_text(pt_incident.find('.//inc:Summary', INCIDENT_NAMESPACES)),
+                message=self._get_text(pt_incident.find('.//inc:Description', INCIDENT_NAMESPACES)),
+                start_time=self._get_text(pt_incident.find('.//com:StartTime', INCIDENT_NAMESPACES)),
+                end_time=self._get_text(pt_incident.find('.//com:EndTime', INCIDENT_NAMESPACES)),
+                last_updated=self._get_text(pt_incident.find('.//com:LastChangedDate', INCIDENT_NAMESPACES)),
+                operators=operator_models,
+                routes_affected=routes_affected,
+                is_planned=is_planned
+            )
             incidents.append(incident)
         
         return incidents
@@ -624,20 +663,21 @@ class TrainTools:
         print("-" * 70)
         messages_data = self.get_station_messages()
         
-        if 'error' in messages_data:
-            print(messages_data['message'])
-        elif not messages_data.get('messages'):
+        if isinstance(messages_data, StationMessagesError):
+            print(messages_data.message)
+        elif isinstance(messages_data, StationMessagesResponse) and not messages_data.messages:
             print("No incident messages available")
-        else:
-            print(f"Found {len(messages_data['messages'])} incident message(s)")
-            print(f"{'Creation Time':<25} {'Situation #':<20} {'Title':<50}")
-            print("-" * 95)
+        elif isinstance(messages_data, StationMessagesResponse):
+            print(f"Found {len(messages_data.messages)} incident message(s)")
+            print(f"{'ID':<15} {'Category':<12} {'Severity':<12} {'Title':<45}")
+            print("-" * 84)
             
-            for msg in messages_data['messages'][:5]:  # Show first 5
-                creation_time = str(msg.get('creation_time', ''))[:23]
-                situation_num = str(msg.get('situation_number', ''))[:18]
-                title = str(msg.get('title', ''))[:48]
-                print(f"{creation_time:<25} {situation_num:<20} {title:<50}")
+            for incident in messages_data.messages[:5]:  # Show first 5
+                incident_id = (incident.id or 'N/A')[:13]
+                category = (incident.category or 'Unknown')[:10]
+                severity = (incident.severity or 'N/A')[:10]
+                title = (incident.title or 'No title')[:43]
+                print(f"{incident_id:<15} {category:<12} {severity:<12} {title:<45}")
     
     def _get_train_status(self, train: Dict) -> str:
         """Determine train status from train details."""
@@ -681,7 +721,7 @@ def format_departures(board_data: Union[DepartureBoardResponse, DepartureBoardEr
     return _default_tools.format_departures(board_data)
 
 
-def get_station_messages(station_code: Optional[str] = None) -> Dict:
+def get_station_messages(station_code: Optional[str] = None) -> Union[StationMessagesResponse, StationMessagesError]:
     """Module-level wrapper for TrainTools.get_station_messages()."""
     return _default_tools.get_station_messages(station_code)
 

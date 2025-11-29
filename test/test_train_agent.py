@@ -604,20 +604,21 @@ class TestGetStationMessages:
         tools.disruptions_api_key = 'test-key'
         res = tools.get_station_messages()
 
-        # Validate normalization
-        assert len(res['messages']) == 2
-        first = res['messages'][0]
-        assert first['id'] == 'm1'
-        assert first['category'] == 'planned'
-        assert first['severity'] == '1'
-        assert first['title'] == 'Station open'
-        assert first['message'] == 'The station is open as normal.'
-        assert first['is_planned'] == True
+        # Validate response is Pydantic model
+        assert isinstance(res, train_tools.StationMessagesResponse)
+        assert len(res.messages) == 2
+        first = res.messages[0]
+        assert first.id == 'm1'
+        assert first.category == 'planned'
+        assert first.severity == '1'
+        assert first.title == 'Station open'
+        assert first.message == 'The station is open as normal.'
+        assert first.is_planned == True
         
-        second = res['messages'][1]
-        assert second['id'] == 'm2'
-        assert second['category'] == 'unplanned'
-        assert second['is_planned'] == False
+        second = res.messages[1]
+        assert second.id == 'm2'
+        assert second.category == 'unplanned'
+        assert second.is_planned == False
         
         # Ensure correct request formation
         args, kwargs = mock_get.call_args
@@ -666,26 +667,28 @@ class TestGetStationMessages:
         tools.disruptions_api_key = 'test-key'
         res = tools.get_station_messages()
 
-        assert len(res['messages']) == 1
-        m = res['messages'][0]
-        assert m['id'] == 'abc123'
-        assert m['category'] == 'planned'
-        assert m['severity'] == '3'
-        assert m['title'] == 'Engineering work'
-        assert m['message'] == 'Track maintenance overnight.'
-        assert m['start_time'] == '2025-11-29T00:00:00Z'
-        assert m['end_time'] == '2025-11-29T06:00:00Z'
-        assert m['last_updated'] == '2025-11-28T20:00:00Z'
-        assert len(m['operators']) == 1
-        assert m['operators'][0]['ref'] == 'NR'
-        assert m['operators'][0]['name'] == 'Network Rail'
+        assert isinstance(res, train_tools.StationMessagesResponse)
+        assert len(res.messages) == 1
+        m = res.messages[0]
+        assert m.id == 'abc123'
+        assert m.category == 'planned'
+        assert m.severity == '3'
+        assert m.title == 'Engineering work'
+        assert m.message == 'Track maintenance overnight.'
+        assert m.start_time == '2025-11-29T00:00:00Z'
+        assert m.end_time == '2025-11-29T06:00:00Z'
+        assert m.last_updated == '2025-11-28T20:00:00Z'
+        assert len(m.operators) == 1
+        assert m.operators[0].ref == 'NR'
+        assert m.operators[0].name == 'Network Rail'
 
     def test_get_station_messages_missing_api_key(self):
         # Ensure missing key returns a clear error
         tools = train_tools.TrainTools()
         tools.disruptions_api_key = None
         res = tools.get_station_messages()
-        assert 'error' in res and 'Missing API key' in res['error']
+        assert isinstance(res, train_tools.StationMessagesError)
+        assert 'Missing API key' in res.error
 
     @patch('requests.get')
     def test_get_station_messages_http_error(self, mock_get):
@@ -698,8 +701,9 @@ class TestGetStationMessages:
         tools.disruptions_api_key = 'test-key'
         res = tools.get_station_messages()
 
-        assert 'error' in res and 'HTTP 403' in res['error']
-        assert 'Incidents feed request failed' in res['message']
+        assert isinstance(res, train_tools.StationMessagesError)
+        assert 'HTTP 403' in res.error
+        assert 'Incidents feed request failed' in res.message
 
     @patch('requests.get')
     def test_get_station_messages_timeout(self, mock_get):
@@ -709,5 +713,6 @@ class TestGetStationMessages:
         tools.disruptions_api_key = 'test-key'
         res = tools.get_station_messages()
 
-        assert 'error' in res
-        assert 'Unable to fetch station messages' in res['message']
+        assert isinstance(res, train_tools.StationMessagesError)
+        assert 'request timed out' in res.error
+        assert 'Unable to fetch station messages' in res.message
