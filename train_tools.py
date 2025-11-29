@@ -56,7 +56,6 @@ load_dotenv()
 DEFAULT_WSDL = 'http://lite.realtime.nationalrail.co.uk/OpenLDBWS/wsdl.aspx?ver=2021-11-01'
 INCIDENTS_API_URL = 'https://api1.raildata.org.uk/1010-knowlegebase-incidents-xml-feed1_0/incidents.xml'
 SERVICE_DETAILS_API_URL = 'https://api1.raildata.org.uk/1010-service-details1_2/LDBWS/api/20220120/GetServiceDetails'
-SERVICE_DETAILS_API_KEY = 'FI7Es7TryzBsOo7EhvMxmVL5RbmZAUMH9Md23sTJCjQCjgYC'
 
 # XML Namespaces for incident feed
 INCIDENT_NAMESPACES = {
@@ -66,6 +65,7 @@ INCIDENT_NAMESPACES = {
 
 # Backwards-compatible module-level names (tests expect these)
 LDB_TOKEN = os.getenv('LDB_TOKEN')
+SERVICE_DETAILS_API_KEY = os.getenv('SERVICE_DETAILS_API_KEY')
 WSDL = DEFAULT_WSDL
 
 # ============================================================================
