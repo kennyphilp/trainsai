@@ -28,88 +28,23 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Union
 
 import requests
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
 from zeep import Client, Settings, xsd
+
+from models import (
+    AffectedOperator,
+    DepartureBoardError,
+    DepartureBoardResponse,
+    DetailedDeparturesError,
+    DetailedDeparturesResponse,
+    DetailedTrainDeparture,
+    Incident,
+    StationMessagesError,
+    StationMessagesResponse,
+    TrainDeparture,
+)
 
 # Load environment variables
 load_dotenv()
-
-# ============================================================================
-# Response Models
-# ============================================================================
-
-class TrainDeparture(BaseModel):
-    """Model for a single train departure."""
-    std: str = Field(..., description="Scheduled Time of Departure")
-    etd: str = Field(..., description="Estimated Time of Departure")
-    destination: str = Field(..., description="Destination station name")
-    platform: str = Field(default="TBA", description="Platform number")
-    operator: str = Field(default="Unknown", description="Train operating company")
-
-class DepartureBoardResponse(BaseModel):
-    """Model for departure board API response."""
-    station: str = Field(..., description="Station name")
-    trains: List[TrainDeparture] = Field(default_factory=list, description="List of departing trains")
-    message: str = Field(..., description="Summary message")
-
-class DepartureBoardError(BaseModel):
-    """Model for departure board error response."""
-    error: str = Field(..., description="Error message")
-    message: str = Field(..., description="Detailed error description")
-
-class DetailedTrainDeparture(BaseModel):
-    """Model for a detailed train departure with extended information."""
-    std: str = Field(..., description="Scheduled Time of Departure")
-    etd: str = Field(..., description="Estimated Time of Departure")
-    destination: str = Field(..., description="Destination station name")
-    platform: Optional[str] = Field(default="TBA", description="Platform number")
-    operator: Optional[str] = Field(default="Unknown", description="Train operating company")
-    service_id: Optional[str] = Field(default="N/A", description="Unique service identifier")
-    service_type: Optional[str] = Field(default="Unknown", description="Type of service (e.g., Express, Stopping)")
-    length: Optional[str] = Field(default="Unknown", description="Number of carriages")
-    is_cancelled: Optional[bool] = Field(default=False, description="Whether the service is cancelled")
-    cancel_reason: Optional[str] = Field(default=None, description="Reason for cancellation")
-    delay_reason: Optional[str] = Field(default=None, description="Reason for delay")
-
-class DetailedDeparturesResponse(BaseModel):
-    """Model for detailed departures API response."""
-    station: str = Field(..., description="Station name")
-    trains: List[DetailedTrainDeparture] = Field(default_factory=list, description="List of detailed departures")
-    message: str = Field(..., description="Summary message")
-
-class DetailedDeparturesError(BaseModel):
-    """Model for detailed departures error response."""
-    error: str = Field(..., description="Error message")
-    message: str = Field(..., description="Detailed error description")
-
-class AffectedOperator(BaseModel):
-    """Model for an affected train operator."""
-    ref: Optional[str] = Field(default=None, description="Operator reference code")
-    name: Optional[str] = Field(default=None, description="Operator name")
-
-class Incident(BaseModel):
-    """Model for a service incident/disruption."""
-    id: Optional[str] = Field(default=None, description="Incident number")
-    category: str = Field(..., description="Incident category (planned/unplanned)")
-    severity: Optional[str] = Field(default=None, description="Incident priority/severity")
-    title: Optional[str] = Field(default=None, description="Incident summary")
-    message: Optional[str] = Field(default=None, description="Detailed incident description")
-    start_time: Optional[str] = Field(default=None, description="Incident start time")
-    end_time: Optional[str] = Field(default=None, description="Incident end time")
-    last_updated: Optional[str] = Field(default=None, description="Last update timestamp")
-    operators: List[AffectedOperator] = Field(default_factory=list, description="Affected operators")
-    routes_affected: Optional[str] = Field(default=None, description="Routes affected by incident")
-    is_planned: bool = Field(default=False, description="Whether incident is planned work")
-
-class StationMessagesResponse(BaseModel):
-    """Model for station messages/incidents API response."""
-    messages: List[Incident] = Field(default_factory=list, description="List of incidents")
-    message: str = Field(..., description="Summary message")
-
-class StationMessagesError(BaseModel):
-    """Model for station messages error response."""
-    error: str = Field(..., description="Error message")
-    message: str = Field(..., description="Detailed error description")
 
 # ============================================================================
 # Configuration Constants
