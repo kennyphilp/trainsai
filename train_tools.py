@@ -1,49 +1,99 @@
 #!/usr/bin/env python3
 """
-Train Departure AI Agent (renamed module)
-This file is a direct rename of `train_agent.py` to provide the canonical
-`train_tools` module name. It contains the `TrainTools` class and the same
-top-level compatibility wrappers.
+Train Tools - UK National Rail API Client
+
+This module provides a Python interface to the UK National Rail APIs:
+- Live Departure Boards (SOAP) - Real-time train departure information
+- Knowledgebase Incidents Feed (REST/XML) - Network-wide disruption data
+
+Main class: TrainTools
+Provides methods for querying departure boards, detailed service information,
+and nationwide incident/disruption messages.
+
+Usage:
+    from train_tools import TrainTools
+    
+    tt = TrainTools(ldb_token='your_token')
+    departures = tt.get_departure_board('EUS', num_rows=10)
+    incidents = tt.get_station_messages()
+
+Environment Variables:
+    LDB_TOKEN - National Rail Live Departure Boards access token
+    DISRUPTIONS_API_KEY or RDG_API_KEY - Rail Delivery Group API key
 """
 
 import os
-from typing import Iterable, Sequence, Set, Union
+import xml.etree.ElementTree as ET
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Union
+
 import requests
 from dotenv import load_dotenv
-from agents import Agent, Runner
 from zeep import Client, Settings, xsd
 
-
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
+# ============================================================================
+# Configuration Constants
+# ============================================================================
 
-# Configuration defaults
 DEFAULT_WSDL = 'http://lite.realtime.nationalrail.co.uk/OpenLDBWS/wsdl.aspx?ver=2021-11-01'
+INCIDENTS_API_URL = 'https://api1.raildata.org.uk/1010-knowlegebase-incidents-xml-feed1_0/incidents.xml'
+
+# XML Namespaces for incident feed
+INCIDENT_NAMESPACES = {
+    'inc': 'http://nationalrail.co.uk/xml/incident',
+    'com': 'http://nationalrail.co.uk/xml/common'
+}
 
 # Backwards-compatible module-level names (tests expect these)
 LDB_TOKEN = os.getenv('LDB_TOKEN')
 WSDL = DEFAULT_WSDL
 
+# ============================================================================
+# TrainTools Class
+# ============================================================================
 
 class TrainTools:
-    """Encapsulates train departure tool functions.
-
-    Usage:
-        tt = TrainTools(ldb_token=os.getenv('LDB_TOKEN'))
-        board = tt.get_departure_board('EUS')
+    """
+    UK National Rail API Client
+    
+    Provides access to:
+    1. Live Departure Boards (SOAP API) - Real-time departure information
+    2. Incidents Feed (REST/XML API) - Network disruptions and engineering works
+    
+    Authentication:
+    - Live Departure Boards: Requires LDB_TOKEN from National Rail
+    - Incidents Feed: Requires DISRUPTIONS_API_KEY or RDG_API_KEY
+    
+    Example:
+        >>> tt = TrainTools(ldb_token=os.getenv('LDB_TOKEN'))
+        >>> board = tt.get_departure_board('EUS', num_rows=5)
+        >>> print(f"{board['station']}: {len(board['trains'])} trains")
     """
 
-    def __init__(self, ldb_token: str = None, wsdl: str = None):
+    def __init__(self, ldb_token: Optional[str] = None, wsdl: Optional[str] = None):
+        """
+        Initialize TrainTools client.
+        
+        Args:
+            ldb_token: National Rail Live Departure Boards access token.
+                      Falls back to LDB_TOKEN environment variable if not provided.
+            wsdl: Custom WSDL URL for the SOAP API. Uses default if not provided.
+        """
         load_dotenv()
         self.ldb_token = ldb_token or os.getenv('LDB_TOKEN')
         self.wsdl = wsdl or DEFAULT_WSDL
-        # Disruptions API configuration (REST)
-        self.disruptions_base_url = os.getenv('DISRUPTIONS_BASE_URL', 'https://api1.raildeliverygroup.com')
-        # Prefer specific key, fall back to a generic RDG key if present
+        
+        # Disruptions API configuration
         self.disruptions_api_key = os.getenv('DISRUPTIONS_API_KEY') or os.getenv('RDG_API_KEY')
-
-    def _make_header(self):
+    
+    # ------------------------------------------------------------------------
+    # Private Helper Methods
+    # ------------------------------------------------------------------------
+    
+    def _make_header(self) -> xsd.Element:
+        """Create SOAP authentication header for National Rail API."""
         header = xsd.Element(
             '{http://thalesgroup.com/RTTI/2013-11-28/Token/types}AccessToken',
             xsd.ComplexType([
@@ -53,13 +103,66 @@ class TrainTools:
             ])
         )
         return header(TokenValue=self.ldb_token)
+    
+    def _create_soap_client(self) -> Client:
+        """Create and configure SOAP client for National Rail API."""
+        settings = Settings(strict=False)
+        return Client(wsdl=self.wsdl, settings=settings)
+    
+    def _extract_destination_name(self, service) -> str:
+        """Extract destination name from service object."""
+        if hasattr(service, 'destination') and service.destination:
+            if hasattr(service.destination, 'location') and service.destination.location:
+                return service.destination.location[0].locationName
+        return "Unknown"
+    
+    def _build_train_detail_dict(self, service) -> Dict:
+        """Build standardized train detail dictionary from service object."""
+        return {
+            'std': service.std,
+            'etd': service.etd,
+            'destination': self._extract_destination_name(service),
+            'platform': getattr(service, 'platform', 'TBA'),
+            'operator': getattr(service, 'operator', 'Unknown'),
+            'service_id': getattr(service, 'serviceID', 'N/A'),
+            'service_type': getattr(service, 'serviceType', 'Unknown'),
+            'length': getattr(service, 'length', 'Unknown'),
+            'is_cancelled': getattr(service, 'isCancelled', False),
+            'cancel_reason': getattr(service, 'cancelReason', None),
+            'delay_reason': getattr(service, 'delayReason', None),
+        }
+    
+    # ------------------------------------------------------------------------
+    # Public API Methods - Departure Information
+    # ------------------------------------------------------------------------
 
-    def get_departure_board(self, station_code: str, num_rows: int = 10) -> dict:
-        """Fetch departure board information for a given station."""
+    
+    def get_departure_board(self, station_code: str, num_rows: int = 10) -> Dict:
+        """
+        Fetch basic departure board information for a station.
+        
+        Retrieves real-time departure information from the National Rail Live
+        Departure Boards API. Returns basic departure details including scheduled
+        time, estimated time, destination, platform, and operating company.
+        
+        Args:
+            station_code: Three-letter CRS code (e.g., 'EUS', 'GLC', 'MAN')
+            num_rows: Maximum number of departures to return (default: 10)
+        
+        Returns:
+            Dictionary containing:
+                - station: Station name
+                - trains: List of departure records
+                - message: Summary text
+            On error: 'error' and 'message' keys
+                
+        Example:
+            >>> board = tt.get_departure_board('EUS', num_rows=5)
+            >>> for train in board['trains']:
+            ...     print(f"{train['std']} to {train['destination']}")
+        """
         try:
-            settings = Settings(strict=False)
-            client = Client(wsdl=self.wsdl, settings=settings)
-
+            client = self._create_soap_client()
             header_value = self._make_header()
 
             res = client.service.GetDepartureBoard(
@@ -68,19 +171,14 @@ class TrainTools:
                 _soapheaders=[header_value]
             )
 
-            # Format response
+            # Parse response and build trains list
             trains = []
             if hasattr(res, 'trainServices') and res.trainServices:
                 for service in res.trainServices.service:
-                    destination = (
-                        service.destination.location[0].locationName
-                        if service.destination and service.destination.location
-                        else "Unknown"
-                    )
                     trains.append({
                         'std': service.std,
                         'etd': service.etd,
-                        'destination': destination,
+                        'destination': self._extract_destination_name(service),
                         'platform': getattr(service, 'platform', 'TBA'),
                         'operator': getattr(service, 'operator', 'Unknown')
                     })
@@ -97,23 +195,61 @@ class TrainTools:
                 'message': f"Unable to fetch departure information: {str(e)}"
             }
 
-    def get_next_departures_with_details(self, station_code: str, filter_list: Union[Iterable[str], Sequence[str], Set[str], None] = None, time_offset: int = 0, time_window: int = 120) -> dict:
-        """Fetch next departures with detailed information for a given station.
-
-        Parameters:
-        - station_code: CRS code for origin station (e.g., 'EUS').
-        - filter_list: Optional iterable of destination CRS codes to filter on (list/tuple/set). If None, uses GetDepBoardWithDetails instead. Plain strings are not accepted.
-        - time_offset: Minutes offset from current time (default 0).
-        - time_window: Time window in minutes to search (default 120).
+    
+    def get_next_departures_with_details(
+        self, 
+        station_code: str, 
+        filter_list: Union[Iterable[str], Sequence[str], Set[str], None] = None, 
+        time_offset: int = 0, 
+        time_window: int = 120
+    ) -> Dict:
+        """
+        Fetch comprehensive departure information with service details.
+        
+        Provides detailed information including cancellation status, delay reasons,
+        service IDs, and train characteristics. Supports two modes:
+        
+        1. Unfiltered (filter_list=None): All departures within time window
+        2. Filtered: Next departure to each specified destination
+        
+        Args:
+            station_code: Three-letter CRS code (e.g., 'EUS', 'GLC')
+            filter_list: Optional destination CRS codes. None = all departures
+            time_offset: Minutes from now to start search (default: 0)
+            time_window: Search window in minutes (default: 120)
+        
+        Returns:
+            Dictionary containing:
+                - station: Station name
+                - trains: List of detailed departure records with cancellation,
+                         delay, service ID, and train length information
+                - message: Summary text
+            On error: 'error' and 'message' keys
+                
+        Raises:
+            ValueError: If filter_list is invalid (string or empty iterable)
+        
+        Example:
+            >>> # All departures with details
+            >>> details = tt.get_next_departures_with_details('EUS')
+            >>> 
+            >>> # Filtered to specific destinations
+            >>> details = tt.get_next_departures_with_details('EUS', ['MAN', 'LIV'])
+            >>> 
+            >>> # Check for cancellations
+            >>> for train in details['trains']:
+            ...     if train['is_cancelled']:
+            ...         print(f"Cancelled: {train['destination']}")
         """
         try:
-            settings = Settings(strict=False)
-            client = Client(wsdl=self.wsdl, settings=settings)
-
+            client = self._create_soap_client()
             header_value = self._make_header()
 
-            # If no filter_list provided, use GetDepBoardWithDetails
+            # Choose API method based on filter_list
             if filter_list is None:
+                # GetDepBoardWithDetails: All departures within time window
+                # Includes cancellation status, delay reasons, service IDs,
+                # train length, and calling points
                 res = client.service.GetDepBoardWithDetails(
                     numRows=150,
                     crs=station_code.upper(),
@@ -122,16 +258,22 @@ class TrainTools:
                     _soapheaders=[header_value]
                 )
             else:
-                # Build filter list for SOAP call; API requires at least one destination CRS
-                # Reject a single string (iterable of characters) and ensure we have at least one code
+                # Validate and build filter list
                 if isinstance(filter_list, str):
-                    raise ValueError("filter_list must be an iterable of CRS codes (e.g., list/tuple/set), not a string")
+                    raise ValueError(
+                        "filter_list must be an iterable of CRS codes "
+                        "(e.g., list/tuple/set), not a string"
+                    )
                 if not filter_list:
-                    raise ValueError("filter_list must be a non-empty iterable of destination CRS codes")
+                    raise ValueError(
+                        "filter_list must be a non-empty iterable of destination CRS codes"
+                    )
+                
                 filter_crs = [str(c).upper() for c in filter_list if str(c).strip()]
                 if not filter_crs:
                     raise ValueError("filter_list must contain at least one valid CRS code")
 
+                # GetNextDeparturesWithDetails: Next departure to each destination
                 res = client.service.GetNextDeparturesWithDetails(
                     crs=station_code.upper(),
                     filterList={'crs': filter_crs},
@@ -140,58 +282,8 @@ class TrainTools:
                     _soapheaders=[header_value]
                 )
 
-            trains = []
-            # Handle response structure based on API call type
-            if filter_list is None:
-                # GetDepBoardWithDetails returns trainServices
-                if hasattr(res, 'trainServices') and res.trainServices:
-                    for service in res.trainServices.service:
-                        # Extract destination name
-                        dest_name = "Unknown"
-                        if hasattr(service, 'destination') and service.destination:
-                            if hasattr(service.destination, 'location') and service.destination.location:
-                                dest_name = service.destination.location[0].locationName
-                        
-                        train_detail = {
-                            'std': service.std,
-                            'etd': service.etd,
-                            'destination': dest_name,
-                            'platform': getattr(service, 'platform', 'TBA'),
-                            'operator': getattr(service, 'operator', 'Unknown'),
-                            'service_id': getattr(service, 'serviceID', 'N/A'),
-                            'service_type': getattr(service, 'serviceType', 'Unknown'),
-                            'length': getattr(service, 'length', 'Unknown'),
-                            'is_cancelled': getattr(service, 'isCancelled', False),
-                            'cancel_reason': getattr(service, 'cancelReason', None),
-                            'delay_reason': getattr(service, 'delayReason', None),
-                        }
-                        trains.append(train_detail)
-            else:
-                # GetNextDeparturesWithDetails returns departures.destination structure
-                if hasattr(res, 'departures') and res.departures and hasattr(res.departures, 'destination'):
-                    for destination_item in res.departures.destination:
-                        service = destination_item.service
-                        
-                        # Extract destination name from the service's destination element
-                        dest_name = "Unknown"
-                        if hasattr(service, 'destination') and service.destination:
-                            if hasattr(service.destination, 'location') and service.destination.location:
-                                dest_name = service.destination.location[0].locationName
-                        
-                        train_detail = {
-                            'std': service.std,
-                            'etd': service.etd,
-                            'destination': dest_name,
-                            'platform': getattr(service, 'platform', 'TBA'),
-                            'operator': getattr(service, 'operator', 'Unknown'),
-                            'service_id': getattr(service, 'serviceID', 'N/A'),
-                            'service_type': getattr(service, 'serviceType', 'Unknown'),
-                            'length': getattr(service, 'length', 'Unknown'),
-                            'is_cancelled': getattr(service, 'isCancelled', False),
-                            'cancel_reason': getattr(service, 'cancelReason', None),
-                            'delay_reason': getattr(service, 'delayReason', None),
-                        }
-                        trains.append(train_detail)
+            # Parse response based on API method used
+            trains = self._parse_detailed_departures(res, filter_list is None)
 
             return {
                 'station': res.locationName,
@@ -204,15 +296,68 @@ class TrainTools:
                 'error': str(e),
                 'message': f"Unable to fetch next departures with details: {str(e)}"
             }
-
-    def get_station_messages(self) -> dict:
-        """Fetch station disruption/incident messages.
-
-        Endpoint:
-        GET https://api1.raildata.org.uk/1010-knowlegebase-incidents-xml-feed1_0/incidents.xml
-
-        The feed returns XML with PtIncident elements containing incident information.
-        Returns normalized messages plus raw XML payload.
+    
+    def _parse_detailed_departures(self, response, is_unfiltered: bool) -> List[Dict]:
+        """
+        Parse detailed departure response based on API method.
+        
+        Args:
+            response: SOAP response object
+            is_unfiltered: True if GetDepBoardWithDetails, False if GetNextDeparturesWithDetails
+        
+        Returns:
+            List of train detail dictionaries
+        """
+        trains = []
+        
+        if is_unfiltered:
+            # GetDepBoardWithDetails returns trainServices structure
+            if hasattr(response, 'trainServices') and response.trainServices:
+                for service in response.trainServices.service:
+                    trains.append(self._build_train_detail_dict(service))
+        else:
+            # GetNextDeparturesWithDetails returns departures.destination structure
+            if (hasattr(response, 'departures') and response.departures and 
+                hasattr(response.departures, 'destination')):
+                for destination_item in response.departures.destination:
+                    service = destination_item.service
+                    trains.append(self._build_train_detail_dict(service))
+        
+        return trains
+        
+    
+    # ============================================================================
+    # Station Messages & Incidents
+    # ============================================================================
+    
+    def get_station_messages(self, station_code: Optional[str] = None) -> Dict:
+        """
+        Retrieve service disruption messages and incident information.
+        
+        Fetches incident data from the Rail Delivery Group Knowledgebase XML feed,
+        providing real-time information about delays, cancellations, engineering
+        works, and other service disruptions. Can filter by station or return all.
+        
+        Args:
+            station_code: Optional three-letter CRS code to filter incidents.
+                         None returns all current incidents across the network.
+        
+        Returns:
+            Dictionary containing:
+                - messages: List of incident records with title, description,
+                           affected operators, routes, and timestamps
+                - message: Summary text with incident count
+            On error: 'error' and 'message' keys
+        
+        Example:
+            >>> # All network incidents
+            >>> incidents = tt.get_station_messages()
+            >>> print(f"Total incidents: {len(incidents['messages'])}")
+            >>> 
+            >>> # Station-specific incidents
+            >>> incidents = tt.get_station_messages('PAD')
+            >>> for msg in incidents['messages']:
+            ...     print(f"{msg['title']}: {msg['incident_description']}")
         """
         try:
             if not self.disruptions_api_key:
@@ -221,114 +366,18 @@ class TrainTools:
                     'message': 'DISRUPTIONS_API_KEY (or RDG_API_KEY) is not set in environment.'
                 }
             
-            url = "https://api1.raildata.org.uk/1010-knowlegebase-incidents-xml-feed1_0/incidents.xml"
-            
-            headers = {
-                'x-apikey': self.disruptions_api_key,
-                'User-Agent': 'TrainTools/1.0'
-            }
+            headers = {'x-apikey': self.disruptions_api_key}
+            response = requests.get(INCIDENTS_API_URL, headers=headers, timeout=10)
+            response.raise_for_status()
 
-            resp = requests.get(url, headers=headers, timeout=15)
-            resp.raise_for_status()
-
-            # Parse XML response
-            import xml.etree.ElementTree as ET
-            try:
-                xml_root = ET.fromstring(resp.text)
-            except ET.ParseError as pe:
-                return {
-                    'error': 'ParseError',
-                    'message': f'Unable to parse XML station messages: {pe}'
-                }
-
-            # Define namespace map for the XML
-            ns = {
-                'inc': 'http://nationalrail.co.uk/xml/incident',
-                'com': 'http://nationalrail.co.uk/xml/common'
-            }
-
-            # Extract all PtIncident elements
-            incidents = xml_root.findall('.//inc:PtIncident', ns)
-            if not incidents:
-                # Try without namespace if namespaced search fails
-                incidents = xml_root.findall('.//PtIncident')
-
-            normalized = []
-            for incident in incidents:
-                # Helper function to get text from element (handles namespaces)
-                def get_text(elem, path, namespaces=ns):
-                    # First try with incident namespace if path doesn't have prefix
-                    if not ':' in path and not path.startswith('.//'):
-                        try:
-                            found = elem.find('inc:' + path, namespaces)
-                            if found is not None and found.text:
-                                return found.text.strip()
-                        except:
-                            pass
-                    
-                    # Try the path as given
-                    try:
-                        found = elem.find(path, namespaces)
-                        if found is not None and found.text:
-                            return found.text.strip()
-                    except:
-                        pass
-                    
-                    # Try without namespace
-                    try:
-                        simple_path = path.split(':')[-1] if ':' in path else path
-                        found = elem.find('.//' + simple_path)
-                        if found is not None and found.text:
-                            return found.text.strip()
-                    except:
-                        pass
-                    return None
-
-                # Extract validity period times
-                start_time = get_text(incident, './/com:StartTime')
-                end_time = get_text(incident, './/com:EndTime')
-                last_updated = get_text(incident, './/com:LastChangedDate')
-
-                # Extract incident details
-                incident_number = get_text(incident, 'IncidentNumber')
-                summary = get_text(incident, 'Summary')
-                description = get_text(incident, 'Description')
-                priority = get_text(incident, 'IncidentPriority')
-                planned = get_text(incident, 'Planned')
-
-                # Extract operator information
-                operators = []
-                operator_elems = incident.findall('.//inc:AffectedOperator', ns)
-                if not operator_elems:
-                    operator_elems = incident.findall('.//AffectedOperator')
-                
-                for op_elem in operator_elems:
-                    op_ref = get_text(op_elem, 'OperatorRef')
-                    op_name = get_text(op_elem, 'OperatorName')
-                    if op_ref or op_name:
-                        operators.append({'ref': op_ref, 'name': op_name})
-
-                # Extract routes affected
-                routes = get_text(incident, './/inc:RoutesAffected')
-
-                normalized.append({
-                    'id': incident_number,
-                    'category': 'planned' if planned == 'true' else 'unplanned',
-                    'severity': priority,
-                    'title': summary,
-                    'message': description,
-                    'start_time': start_time,
-                    'end_time': end_time,
-                    'last_updated': last_updated,
-                    'operators': operators,
-                    'routes_affected': routes,
-                    'is_planned': planned == 'true'
-                })
+            # Parse XML with namespace handling
+            root = ET.fromstring(response.text)
+            incidents = self._parse_incidents(root, station_code)
 
             return {
-                'messages': normalized,
-                'raw': resp.text,
-                'message': f"Found {len(normalized)} incident(s) from incidents feed"
+                'messages': incidents,
+                'message': f"Found {len(incidents)} incident(s)" + 
+                          (f" for station {station_code}" if station_code else " across the network")
             }
 
         except requests.HTTPError as http_err:
@@ -337,14 +386,98 @@ class TrainTools:
                 'error': f"HTTP {status}",
                 'message': f"Incidents feed request failed with status {status}: {http_err}"
             }
-        except Exception as e:
+        except requests.RequestException as e:
             return {
                 'error': str(e),
                 'message': f"Unable to fetch station messages: {str(e)}"
             }
-
-    def format_departures(self, board_data: dict) -> str:
-        """Format departure board data into a readable string."""
+        except ET.ParseError as e:
+            return {
+                'error': str(e),
+                'message': f"Unable to parse station messages XML: {str(e)}"
+            }
+    
+    def _parse_incidents(self, root: ET.Element, station_filter: Optional[str]) -> List[Dict]:
+        """
+        Parse incidents from XML with namespace handling.
+        
+        Args:
+            root: XML root element
+            station_filter: Optional CRS code to filter by
+        
+        Returns:
+            List of incident dictionaries
+        """
+        incidents = []
+        
+        # Find all PtIncident elements (old schema)
+        for pt_incident in root.findall('.//inc:PtIncident', INCIDENT_NAMESPACES):
+            # Extract affected operators
+            affected_ops = []
+            for operator_elem in pt_incident.findall('.//inc:AffectedOperator', INCIDENT_NAMESPACES):
+                op_ref = self._get_text(operator_elem.find('.//inc:OperatorRef', INCIDENT_NAMESPACES))
+                op_name = self._get_text(operator_elem.find('.//inc:OperatorName', INCIDENT_NAMESPACES))
+                if op_ref or op_name:
+                    affected_ops.append({'ref': op_ref, 'name': op_name})
+            
+            # Extract routes affected
+            routes_affected = self._get_text(pt_incident.find('.//inc:RoutesAffected', INCIDENT_NAMESPACES))
+            
+            # Filter by station if requested (check if station code appears in routes)
+            if station_filter and routes_affected:
+                station_upper = station_filter.upper()
+                if station_upper not in routes_affected.upper():
+                    continue
+            
+            # Extract incident details
+            planned_text = self._get_text(pt_incident.find('.//inc:Planned', INCIDENT_NAMESPACES))
+            is_planned = planned_text == 'true' if planned_text else False
+            
+            incident = {
+                'id': self._get_text(pt_incident.find('.//inc:IncidentNumber', INCIDENT_NAMESPACES)),
+                'category': 'planned' if is_planned else 'unplanned',
+                'severity': self._get_text(pt_incident.find('.//inc:IncidentPriority', INCIDENT_NAMESPACES)),
+                'title': self._get_text(pt_incident.find('.//inc:Summary', INCIDENT_NAMESPACES)),
+                'message': self._get_text(pt_incident.find('.//inc:Description', INCIDENT_NAMESPACES)),
+                'start_time': self._get_text(pt_incident.find('.//com:StartTime', INCIDENT_NAMESPACES)),
+                'end_time': self._get_text(pt_incident.find('.//com:EndTime', INCIDENT_NAMESPACES)),
+                'last_updated': self._get_text(pt_incident.find('.//com:LastChangedDate', INCIDENT_NAMESPACES)),
+                'operators': affected_ops,
+                'routes_affected': routes_affected,
+                'is_planned': is_planned
+            }
+            incidents.append(incident)
+        
+        return incidents
+    
+    def _get_text(self, element: Optional[ET.Element]) -> Optional[str]:
+        """
+        Safely extract text from XML element with namespace fallback.
+        
+        Args:
+            element: XML element or None
+        
+        Returns:
+            Element text or None if not found
+        """
+        if element is not None:
+            return element.text
+        return None
+    
+    # ============================================================================
+    # Formatting & Display
+    # ============================================================================
+    
+    def format_departures(self, board_data: Dict) -> str:
+        """
+        Format departure board data into readable text.
+        
+        Args:
+            board_data: Dictionary from get_departure_board()
+        
+        Returns:
+            Formatted string with departure information table
+        """
         if 'error' in board_data:
             return board_data['message']
 
@@ -361,79 +494,134 @@ class TrainTools:
 
         return output
 
-    def main(self):
-        """Demo method: fetch and display departures for Glasgow Central."""
+    def main(self) -> None:
+        """
+        Demo: Display comprehensive departure information for Glasgow Central.
+        
+        Demonstrates all three main API methods:
+        1. Basic departure board
+        2. Detailed departures with cancellation/delay info
+        3. Network-wide incident messages
+        """
+        self._print_header()
+        self._demo_basic_board()
+        self._demo_detailed_departures()
+        self._demo_incident_messages()
+        self._print_footer()
+    
+    def _print_header(self) -> None:
+        """Print demo header."""
         print("\n" + "=" * 70)
         print("🚂 Train Departure Information for Glasgow Central")
         print("=" * 70)
-
-        # Fetch basic departure board
+    
+    def _print_footer(self) -> None:
+        """Print demo footer."""
+        print("\n" + "=" * 70)
+    
+    def _demo_basic_board(self) -> None:
+        """Demonstrate basic departure board."""
         print("\n📋 Basic Departure Board:")
         print("-" * 70)
         board_data = self.get_departure_board('GLC', num_rows=3)
         formatted_board = self.format_departures(board_data)
         print(formatted_board)
-
-        # Fetch next departures with details (filtered to show trains to Edinburgh)
+    
+    def _demo_detailed_departures(self) -> None:
+        """Demonstrate detailed departures with cancellation info."""
         print("\n📋 Next Departures with Details:")
         print("-" * 70)
         details_data = self.get_next_departures_with_details('GLC', time_window=120)
+        
         if 'error' not in details_data and details_data['trains']:
             print(f"\nStation: {details_data['station']}")
             print(f"{'STD':<8} {'ETD':<8} {'Destination':<25} {'Status':<15} {'Reason':<20}")
             print("-" * 76)
+            
             for train in details_data['trains']:
-                status = "Cancelled" if train['is_cancelled'] else "On time" if train['etd'] == train['std'] else "Delayed"
+                status = self._get_train_status(train)
                 reason = train['cancel_reason'] or train['delay_reason'] or "-"
                 print(f"{train['std']:<8} {train['etd']:<8} {train['destination']:<25} {status:<15} {reason:<20}")
         else:
             print(details_data.get('message', 'Unable to fetch details'))
-
-        # Fetch station messages (disruptions) - incidents feed (not station-specific)
+    
+    def _demo_incident_messages(self) -> None:
+        """Demonstrate incident messages retrieval."""
         print("\n📋 Station Messages:")
         print("-" * 70)
         messages_data = self.get_station_messages()
+        
         if 'error' in messages_data:
             print(messages_data['message'])
         elif not messages_data.get('messages'):
             print("No incident messages available")
         else:
             print(f"Found {len(messages_data['messages'])} incident message(s)")
-            print(f"{'ID':<40} {'Category':<12} {'Severity':<8} {'Title':<50}")
-            print("-" * 120)
-            for m in messages_data['messages'][:5]:  # Show first 5
-                incident_id = str(m.get('id', ''))[:38]
-                category = str(m.get('category', ''))[:10]
-                severity = str(m.get('severity', ''))[:6]
-                title = str(m.get('title', ''))
-                print(f"{incident_id:<40} {category:<12} {severity:<8} {title:<50}")
+            print(f"{'Creation Time':<25} {'Situation #':<20} {'Title':<50}")
+            print("-" * 95)
+            
+            for msg in messages_data['messages'][:5]:  # Show first 5
+                creation_time = str(msg.get('creation_time', ''))[:23]
+                situation_num = str(msg.get('situation_number', ''))[:18]
+                title = str(msg.get('title', ''))[:48]
+                print(f"{creation_time:<25} {situation_num:<20} {title:<50}")
+    
+    def _get_train_status(self, train: Dict) -> str:
+        """Determine train status from train details."""
+        if train['is_cancelled']:
+            return "Cancelled"
+        elif train['etd'] == train['std']:
+            return "On time"
+        else:
+            return "Delayed"
 
-        print("\n" + "=" * 70)
 
+# ============================================================================
+# Module-Level Wrapper Functions (Backwards Compatibility)
+# ============================================================================
 
-# Backwards-compatible top-level wrappers (useful for scripts/tests expecting functions)
 _default_tools = TrainTools(ldb_token=LDB_TOKEN, wsdl=WSDL)
 
-def get_departure_board(station_code: str, num_rows: int = 10) -> dict:
+
+def get_departure_board(station_code: str, num_rows: int = 10) -> Dict:
+    """Module-level wrapper for TrainTools.get_departure_board()."""
     return _default_tools.get_departure_board(station_code, num_rows=num_rows)
 
 
-def get_next_departures_with_details(station_code: str, filter_list: Union[Iterable[str], Sequence[str], Set[str], None] = None, time_offset: int = 0, time_window: int = 120) -> dict:
-    return _default_tools.get_next_departures_with_details(station_code, filter_list=filter_list, time_offset=time_offset, time_window=time_window)
+def get_next_departures_with_details(
+    station_code: str, 
+    filter_list: Union[Iterable[str], Sequence[str], Set[str], None] = None, 
+    time_offset: int = 0, 
+    time_window: int = 120
+) -> Dict:
+    """Module-level wrapper for TrainTools.get_next_departures_with_details()."""
+    return _default_tools.get_next_departures_with_details(
+        station_code, 
+        filter_list=filter_list, 
+        time_offset=time_offset, 
+        time_window=time_window
+    )
 
 
-def format_departures(board_data: dict) -> str:
+def format_departures(board_data: Dict) -> str:
+    """Module-level wrapper for TrainTools.format_departures()."""
     return _default_tools.format_departures(board_data)
 
 
-def get_station_messages() -> dict:
-    return _default_tools.get_station_messages()
+def get_station_messages(station_code: Optional[str] = None) -> Dict:
+    """Module-level wrapper for TrainTools.get_station_messages()."""
+    return _default_tools.get_station_messages(station_code)
 
 
-def main_demo():
-    print ("""Demo function to run the main method of TrainTools.""")
+def main_demo() -> None:
+    """Demo function to run the main method of TrainTools."""
     _default_tools.main()
 
 
+# ============================================================================
+# Entry Point
+# ============================================================================
+
 if __name__ == "__main__":
     main_demo()
+
