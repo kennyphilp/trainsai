@@ -52,6 +52,10 @@ if CORS_ENABLED:
          supports_credentials=True,
          max_age=600)
 
+# Input validation configuration
+MAX_MESSAGE_LENGTH = int(os.getenv('MAX_MESSAGE_LENGTH', '5000'))
+MIN_MESSAGE_LENGTH = int(os.getenv('MIN_MESSAGE_LENGTH', '1'))
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -76,6 +80,28 @@ if not app.debug and not os.getenv('TESTING'):
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
     logger.info('ScotRail Train Travel Advisor startup')
+
+
+def validate_message_content(message: str) -> tuple[bool, str]:
+    """Validate message content and return (is_valid, error_message)."""
+    if not message or not message.strip():
+        return False, "Message cannot be empty"
+    
+    if len(message) > MAX_MESSAGE_LENGTH:
+        return False, f"Message too long (max {MAX_MESSAGE_LENGTH} characters)"
+    
+    if len(message.strip()) < MIN_MESSAGE_LENGTH:
+        return False, f"Message too short (min {MIN_MESSAGE_LENGTH} character)"
+    
+    # Check for suspicious patterns (basic XSS prevention)
+    suspicious_patterns = ['<script', 'javascript:', 'onerror=', 'onclick=', 'onload=']
+    message_lower = message.lower()
+    for pattern in suspicious_patterns:
+        if pattern in message_lower:
+            return False, "Message contains invalid content"
+    
+    return True, ""
+
 
 # Session management configuration
 MAX_SESSIONS = int(os.getenv('MAX_SESSIONS', '100'))
@@ -163,14 +189,32 @@ def chat():
     session_id = session.get('session_id', 'unknown')
     
     try:
+        # Validate content type
+        if not request.is_json:
+            logger.warning(f"Invalid content type from session {session_id[:8]}...")
+            return jsonify({'error': 'Content-Type must be application/json'}), 400
+        
+        # Validate JSON structure
         data = request.get_json()
-        user_message = data.get('message', '').strip()
+        if not isinstance(data, dict):
+            logger.warning(f"Invalid JSON format from session {session_id[:8]}...")
+            return jsonify({'error': 'Invalid JSON format'}), 400
+        
+        # Get and validate message
+        user_message = data.get('message', '')
+        if not isinstance(user_message, str):
+            logger.warning(f"Non-string message from session {session_id[:8]}...")
+            return jsonify({'error': 'Message must be a string'}), 400
+        
+        user_message = user_message.strip()
         
         logger.info(f"Chat request from session {session_id[:8]}..., message length: {len(user_message)} chars")
         
-        if not user_message:
-            logger.warning(f"Empty message from session {session_id[:8]}...")
-            return jsonify({'error': 'Message cannot be empty'}), 400
+        # Validate message content
+        is_valid, error_msg = validate_message_content(user_message)
+        if not is_valid:
+            logger.warning(f"Invalid message from session {session_id[:8]}...: {error_msg}")
+            return jsonify({'error': error_msg}), 400
         
         # Get or create agent for this session
         if not session_id or session_id == 'unknown':

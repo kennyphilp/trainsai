@@ -18,6 +18,34 @@ from flask import session
 from app import app, agents, session_metadata, get_or_create_agent
 
 
+@pytest.fixture(scope="function", autouse=True)
+def reset_app_state():
+    """Reset app state before and after each test to prevent cross-test pollution."""
+    from app import limiter
+    # Ensure clean state before test
+    app.config['TESTING'] = True
+    limiter.reset()
+    # Force clear the storage
+    try:
+        limiter._storage.reset()
+    except:
+        pass  # If storage doesn't have reset, limiter.reset() should be enough
+    agents.clear()
+    session_metadata.clear()
+    
+    yield
+    
+    # Ensure clean state after test
+    app.config['TESTING'] = True
+    limiter.reset()
+    try:
+        limiter._storage.reset()
+    except:
+        pass
+    agents.clear()
+    session_metadata.clear()
+
+
 @pytest.fixture
 def client():
     """Create Flask test client."""
@@ -58,8 +86,8 @@ def rate_limited_client():
     with app.test_client() as client:
         yield client
     
-    # Restore original state
-    app.config['TESTING'] = original_testing
+    # Restore original state - ensure TESTING is back to True for other tests
+    app.config['TESTING'] = True if original_testing is None else original_testing
     limiter.enabled = True  # Keep enabled but respect exempt_when
     limiter.reset()
     agents.clear()
@@ -348,35 +376,127 @@ class TestSessionManagement:
 class TestInputValidation:
     """Test input validation and sanitization."""
     
-    def test_chat_rejects_very_long_message(self, client):
-        """Test chat API rejects extremely long messages."""
+    def test_chat_rejects_message_exceeding_max_length(self, client):
+        """Test chat API rejects messages exceeding MAX_MESSAGE_LENGTH (5000 default)."""
         with client.session_transaction() as sess:
             sess['session_id'] = 'test-session-123'
         
-        long_message = 'a' * 10000  # 10k characters
+        long_message = 'a' * 5001  # Exceeds default limit of 5000
         response = client.post('/api/chat', json={
             'message': long_message
         })
         
-        # Should still process but agent may truncate
-        assert response.status_code in [200, 400, 500]
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+        assert 'too long' in data['error'].lower()
     
-    def test_chat_handles_special_characters(self, client, mock_agent):
-        """Test chat API handles special characters."""
-        with patch('app.ScotRailAgent', return_value=mock_agent):
-            with client.session_transaction() as sess:
-                sess['session_id'] = 'test-session-123'
-            
-            response = client.post('/api/chat', json={
-                'message': 'What about <script>alert("xss")</script>?'
-            })
-            
-            assert response.status_code == 200
-            # Verify message was passed as-is (agent handles sanitization)
-            mock_agent.chat.assert_called_once()
+    def test_chat_rejects_empty_message(self, client):
+        """Test chat API rejects empty messages."""
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat', json={'message': ''})
+        
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+        assert 'empty' in data['error'].lower()
+    
+    def test_chat_rejects_whitespace_only_message(self, client):
+        """Test chat API rejects messages with only whitespace."""
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        # Use actual whitespace characters (spaces, newline, tab)
+        whitespace_message = '   \n\t  '
+        response = client.post('/api/chat', json={'message': whitespace_message})
+        
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+        assert 'empty' in data['error'].lower()
+    
+    def test_chat_rejects_xss_script_tags(self, client):
+        """Test chat API rejects messages containing <script> tags."""
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat', json={
+            'message': 'Hello <script>alert("xss")</script>'
+        })
+        
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+        assert 'invalid content' in data['error'].lower()
+    
+    def test_chat_rejects_javascript_protocol(self, client):
+        """Test chat API rejects messages with javascript: protocol."""
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat', json={
+            'message': '<a href=\"javascript:alert(1)\">click</a>'
+        })
+        
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+    
+    def test_chat_rejects_event_handlers(self, client):
+        """Test chat API rejects messages with event handlers."""
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat', json={
+            'message': '<img src=x onerror=alert(1)>'
+        })
+        
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+    
+    def test_chat_rejects_non_json_content(self, client):
+        """Test chat API rejects non-JSON content."""
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat',
+                              data='plain text',
+                              content_type='text/plain')
+        
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+        assert 'json' in data['error'].lower()
+    
+    def test_chat_rejects_non_dict_json(self, client):
+        """Test chat API rejects JSON that isn't a dictionary."""
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat',
+                              json=['not', 'a', 'dict'])
+        
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+    
+    def test_chat_rejects_non_string_message(self, client):
+        """Test chat API rejects non-string message values."""
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat', json={'message': 12345})
+        
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+        assert 'string' in data['error'].lower()
     
     def test_chat_handles_unicode(self, client, mock_agent):
-        """Test chat API handles unicode characters."""
+        """Test chat API handles valid unicode characters."""
         with patch('app.ScotRailAgent', return_value=mock_agent):
             with client.session_transaction() as sess:
                 sess['session_id'] = 'test-session-123'
@@ -386,10 +506,29 @@ class TestInputValidation:
             })
             
             assert response.status_code == 200
+    
+    def test_chat_handles_special_characters_safely(self, client, mock_agent):
+        """Test chat API handles safe special characters."""
+        with patch('app.ScotRailAgent', return_value=mock_agent):
+            with client.session_transaction() as sess:
+                sess['session_id'] = 'test-session-123'
+            
+            response = client.post('/api/chat', json={
+                'message': 'When is the next train? (Edinburgh -> Glasgow)'
+            })
+            
+            assert response.status_code == 200
 
 
 class TestErrorHandling:
     """Test comprehensive error handling."""
+    
+    @pytest.fixture(autouse=True)
+    def reset_limiter_for_error_tests(self):
+        """Reset rate limiter before each error handling test."""
+        from app import limiter
+        limiter.reset()
+        yield
     
     def test_chat_without_session(self, client, mock_agent):
         """Test chat API creates session if missing."""
@@ -431,6 +570,13 @@ class TestErrorHandling:
 
 class TestConcurrency:
     """Test concurrent request handling."""
+    
+    @pytest.fixture(autouse=True)
+    def reset_limiter_for_concurrency_tests(self):
+        """Reset rate limiter before each concurrency test."""
+        from app import limiter
+        limiter.reset()
+        yield
     
     @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
     def test_concurrent_sessions(self, mock_agent):
