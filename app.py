@@ -7,14 +7,41 @@ Provides a web-based chat interface for the ScotRail AI agent.
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from threading import Lock
+import logging
+from logging.handlers import RotatingFileHandler
+import time
+import os
 
 from flask import Flask, render_template, request, jsonify, session
 import secrets
-import os
 from scotrail_agent import ScotRailAgent
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+# File handler for production (if not in debug mode)
+if not app.debug and not os.getenv('TESTING'):
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+    file_handler = RotatingFileHandler('logs/app.log', maxBytes=10485760, backupCount=10)
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+    )
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+    logger.info('ScotRail Train Travel Advisor startup')
 
 # Session management configuration
 MAX_SESSIONS = int(os.getenv('MAX_SESSIONS', '100'))
@@ -33,6 +60,8 @@ def _cleanup_expired_sessions():
         sid for sid, last_access in session_metadata.items()
         if now - last_access > timedelta(hours=SESSION_TTL_HOURS)
     ]
+    if expired:
+        logger.info(f"Cleaning up {len(expired)} expired sessions")
     for sid in expired:
         agents.pop(sid, None)
         session_metadata.pop(sid, None)
@@ -57,20 +86,25 @@ def get_or_create_agent(session_id):
                 # Remove oldest session (LRU eviction)
                 oldest_id, _ = agents.popitem(last=False)
                 session_metadata.pop(oldest_id, None)
+                logger.info(f"LRU eviction: removed session {oldest_id[:8]}... (total sessions: {len(agents)})")
             
             agents[session_id] = ScotRailAgent()
             session_metadata[session_id] = datetime.now()
+            logger.info(f"Created new agent for session {session_id[:8]}... (total sessions: {len(agents)})")
             return agents[session_id], None
             
         except ValueError as e:
+            logger.error(f"Agent initialization failed for session {session_id[:8]}...: {str(e)}")
             return None, str(e)
         except Exception as e:
+            logger.error(f"Agent initialization error for session {session_id[:8]}...: {str(e)}", exc_info=True)
             return None, f"Failed to initialize agent: {str(e)}"
 
 
 @app.route('/')
 def index():
     """Redirect to main chat interface."""
+    logger.debug(f"Index page accessed from {request.remote_addr}")
     return render_template('index.html')
 
 
@@ -80,6 +114,9 @@ def train_travel_advisor():
     # Initialize session if needed
     if 'session_id' not in session:
         session['session_id'] = secrets.token_hex(16)
+        logger.info(f"New session created: {session['session_id'][:8]}... from {request.remote_addr}")
+    else:
+        logger.debug(f"Existing session {session['session_id'][:8]}... accessed chat interface")
     
     return render_template('chat.html')
 
@@ -87,25 +124,35 @@ def train_travel_advisor():
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """Handle chat messages from the user."""
+    start_time = time.time()
+    session_id = session.get('session_id', 'unknown')
+    
     try:
         data = request.get_json()
         user_message = data.get('message', '').strip()
         
+        logger.info(f"Chat request from session {session_id[:8]}..., message length: {len(user_message)} chars")
+        
         if not user_message:
+            logger.warning(f"Empty message from session {session_id[:8]}...")
             return jsonify({'error': 'Message cannot be empty'}), 400
         
         # Get or create agent for this session
-        session_id = session.get('session_id')
-        if not session_id:
+        if not session_id or session_id == 'unknown':
             session['session_id'] = secrets.token_hex(16)
             session_id = session['session_id']
+            logger.info(f"Created session ID for anonymous request: {session_id[:8]}...")
         
         agent, error = get_or_create_agent(session_id)
         if error:
+            logger.error(f"Failed to get agent for session {session_id[:8]}...: {error}")
             return jsonify({'error': error}), 500
         
         # Get response from agent
         response = agent.chat(user_message)
+        
+        duration = time.time() - start_time
+        logger.info(f"Chat response sent to session {session_id[:8]}... in {duration:.2f}s, response length: {len(response)} chars")
         
         return jsonify({
             'response': response,
@@ -113,6 +160,8 @@ def chat():
         })
     
     except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"Chat error for session {session_id[:8]}... after {duration:.2f}s: {str(e)}", exc_info=True)
         return jsonify({
             'error': f'An error occurred: {str(e)}',
             'success': False
@@ -122,19 +171,23 @@ def chat():
 @app.route('/api/reset', methods=['POST'])
 def reset_conversation():
     """Reset the conversation history."""
+    session_id = session.get('session_id', 'unknown')
+    
     try:
-        session_id = session.get('session_id')
-        if session_id and session_id in agents:
+        if session_id and session_id != 'unknown' and session_id in agents:
             agents[session_id].reset_conversation()
+            logger.info(f"Conversation reset for session {session_id[:8]}...")
             return jsonify({
                 'success': True,
                 'message': 'Conversation reset successfully'
             })
+        logger.debug(f"Reset requested for session {session_id[:8]}... with no active conversation")
         return jsonify({
             'success': True,
             'message': 'No active conversation to reset'
         })
     except Exception as e:
+        logger.error(f"Failed to reset conversation for session {session_id[:8]}...: {str(e)}", exc_info=True)
         return jsonify({
             'error': f'Failed to reset conversation: {str(e)}',
             'success': False
@@ -144,11 +197,15 @@ def reset_conversation():
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
+    logger.debug(f"Health check from {request.remote_addr}")
     return jsonify({
         'status': 'healthy',
-        'service': 'ScotRail Train Travel Advisor'
+        'service': 'ScotRail Train Travel Advisor',
+        'active_sessions': len(agents)
     })
 
 
 if __name__ == '__main__':
+    logger.info('Starting ScotRail Train Travel Advisor on http://0.0.0.0:5001')
+    logger.info(f'Session limits: MAX_SESSIONS={MAX_SESSIONS}, SESSION_TTL_HOURS={SESSION_TTL_HOURS}')
     app.run(debug=True, host='0.0.0.0', port=5001)
