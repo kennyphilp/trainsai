@@ -57,6 +57,31 @@ class DepartureBoardError(BaseModel):
     error: str = Field(..., description="Error message")
     message: str = Field(..., description="Detailed error description")
 
+class DetailedTrainDeparture(BaseModel):
+    """Model for a detailed train departure with extended information."""
+    std: str = Field(..., description="Scheduled Time of Departure")
+    etd: str = Field(..., description="Estimated Time of Departure")
+    destination: str = Field(..., description="Destination station name")
+    platform: str = Field(default="TBA", description="Platform number")
+    operator: str = Field(default="Unknown", description="Train operating company")
+    service_id: str = Field(default="N/A", description="Unique service identifier")
+    service_type: str = Field(default="Unknown", description="Type of service (e.g., Express, Stopping)")
+    length: str = Field(default="Unknown", description="Number of carriages")
+    is_cancelled: bool = Field(default=False, description="Whether the service is cancelled")
+    cancel_reason: Optional[str] = Field(default=None, description="Reason for cancellation")
+    delay_reason: Optional[str] = Field(default=None, description="Reason for delay")
+
+class DetailedDeparturesResponse(BaseModel):
+    """Model for detailed departures API response."""
+    station: str = Field(..., description="Station name")
+    trains: List[DetailedTrainDeparture] = Field(default_factory=list, description="List of detailed departures")
+    message: str = Field(..., description="Summary message")
+
+class DetailedDeparturesError(BaseModel):
+    """Model for detailed departures error response."""
+    error: str = Field(..., description="Error message")
+    message: str = Field(..., description="Detailed error description")
+
 # ============================================================================
 # Configuration Constants
 # ============================================================================
@@ -224,7 +249,7 @@ class TrainTools:
         filter_list: Union[Iterable[str], Sequence[str], Set[str], None] = None, 
         time_offset: int = 0, 
         time_window: int = 120
-    ) -> Dict:
+    ) -> Union[DetailedDeparturesResponse, DetailedDeparturesError]:
         """
         Fetch comprehensive departure information with service details.
         
@@ -241,12 +266,8 @@ class TrainTools:
             time_window: Search window in minutes (default: 120)
         
         Returns:
-            Dictionary containing:
-                - station: Station name
-                - trains: List of detailed departure records with cancellation,
-                         delay, service ID, and train length information
-                - message: Summary text
-            On error: 'error' and 'message' keys
+            DetailedDeparturesResponse: Success response with detailed train data
+            DetailedDeparturesError: Error response with error details
                 
         Raises:
             ValueError: If filter_list is invalid (string or empty iterable)
@@ -254,14 +275,13 @@ class TrainTools:
         Example:
             >>> # All departures with details
             >>> details = tt.get_next_departures_with_details('EUS')
+            >>> if isinstance(details, DetailedDeparturesResponse):
+            ...     for train in details.trains:
+            ...         if train.is_cancelled:
+            ...             print(f"Cancelled: {train.destination}")
             >>> 
             >>> # Filtered to specific destinations
             >>> details = tt.get_next_departures_with_details('EUS', ['MAN', 'LIV'])
-            >>> 
-            >>> # Check for cancellations
-            >>> for train in details['trains']:
-            ...     if train['is_cancelled']:
-            ...         print(f"Cancelled: {train['destination']}")
         """
         try:
             client = self._create_soap_client()
@@ -307,19 +327,24 @@ class TrainTools:
             # Parse response based on API method used
             trains = self._parse_detailed_departures(res, filter_list is None)
 
-            return {
-                'station': res.locationName,
-                'trains': trains,
-                'message': f"Found {len(trains)} next departing trains with details from {res.locationName}"
-            }
+            return DetailedDeparturesResponse(
+                station=res.locationName,
+                trains=trains,
+                message=f"Found {len(trains)} next departing trains with details from {res.locationName}"
+            )
 
+        except ValueError as ve:
+            return DetailedDeparturesError(
+                error=str(ve),
+                message=str(ve)
+            )
         except Exception as e:
-            return {
-                'error': str(e),
-                'message': f"Unable to fetch next departures with details: {str(e)}"
-            }
+            return DetailedDeparturesError(
+                error=str(e),
+                message=f"Unable to fetch next departures with details: {str(e)}"
+            )
     
-    def _parse_detailed_departures(self, response, is_unfiltered: bool) -> List[Dict]:
+    def _parse_detailed_departures(self, response, is_unfiltered: bool) -> List[DetailedTrainDeparture]:
         """
         Parse detailed departure response based on API method.
         
@@ -328,7 +353,7 @@ class TrainTools:
             is_unfiltered: True if GetDepBoardWithDetails, False if GetNextDeparturesWithDetails
         
         Returns:
-            List of train detail dictionaries
+            List of DetailedTrainDeparture models
         """
         trains = []
         
@@ -336,14 +361,16 @@ class TrainTools:
             # GetDepBoardWithDetails returns trainServices structure
             if hasattr(response, 'trainServices') and response.trainServices:
                 for service in response.trainServices.service:
-                    trains.append(self._build_train_detail_dict(service))
+                    train_dict = self._build_train_detail_dict(service)
+                    trains.append(DetailedTrainDeparture(**train_dict))
         else:
             # GetNextDeparturesWithDetails returns departures.destination structure
             if (hasattr(response, 'departures') and response.departures and 
                 hasattr(response.departures, 'destination')):
                 for destination_item in response.departures.destination:
                     service = destination_item.service
-                    trains.append(self._build_train_detail_dict(service))
+                    train_dict = self._build_train_detail_dict(service)
+                    trains.append(DetailedTrainDeparture(**train_dict))
         
         return trains
         
@@ -577,17 +604,19 @@ class TrainTools:
         print("-" * 70)
         details_data = self.get_next_departures_with_details('GLC', time_window=120)
         
-        if 'error' not in details_data and details_data['trains']:
-            print(f"\nStation: {details_data['station']}")
+        if isinstance(details_data, DetailedDeparturesResponse) and details_data.trains:
+            print(f"\nStation: {details_data.station}")
             print(f"{'STD':<8} {'ETD':<8} {'Destination':<25} {'Status':<15} {'Reason':<20}")
             print("-" * 76)
             
-            for train in details_data['trains']:
-                status = self._get_train_status(train)
-                reason = train['cancel_reason'] or train['delay_reason'] or "-"
-                print(f"{train['std']:<8} {train['etd']:<8} {train['destination']:<25} {status:<15} {reason:<20}")
+            for train in details_data.trains:
+                status = "Cancelled" if train.is_cancelled else "On time" if train.etd == train.std else "Delayed"
+                reason = train.cancel_reason or train.delay_reason or "-"
+                print(f"{train.std:<8} {train.etd:<8} {train.destination:<25} {status:<15} {reason:<20}")
+        elif isinstance(details_data, DetailedDeparturesError):
+            print(details_data.message)
         else:
-            print(details_data.get('message', 'Unable to fetch details'))
+            print('Unable to fetch details')
     
     def _demo_incident_messages(self) -> None:
         """Demonstrate incident messages retrieval."""
@@ -637,7 +666,7 @@ def get_next_departures_with_details(
     filter_list: Union[Iterable[str], Sequence[str], Set[str], None] = None, 
     time_offset: int = 0, 
     time_window: int = 120
-) -> Dict:
+) -> Union[DetailedDeparturesResponse, DetailedDeparturesError]:
     """Module-level wrapper for TrainTools.get_next_departures_with_details()."""
     return _default_tools.get_next_departures_with_details(
         station_code, 

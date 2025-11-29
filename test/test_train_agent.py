@@ -313,14 +313,14 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('EUS', filter_list=['MAN'], time_window=120)
         
-        assert result['station'] == 'Euston'
-        assert len(result['trains']) == 1
-        assert result['trains'][0]['std'] == '14:30'
-        assert result['trains'][0]['service_id'] == 'SVC001'
-        assert result['trains'][0]['service_type'] == 'Express'
-        assert result['trains'][0]['length'] == '12'
-        assert result['trains'][0]['is_cancelled'] is False
-        assert 'error' not in result
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.station == 'Euston'
+        assert len(result.trains) == 1
+        assert result.trains[0].std == '14:30'
+        assert result.trains[0].service_id == 'SVC001'
+        assert result.trains[0].service_type == 'Express'
+        assert result.trains[0].length == '12'
+        assert result.trains[0].is_cancelled is False
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_cancelled_train(self, mock_client_class):
@@ -357,8 +357,9 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('PAD', filter_list=['BRI'])
         
-        assert result['trains'][0]['is_cancelled'] is True
-        assert result['trains'][0]['cancel_reason'] == 'Crew unavailable'
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.trains[0].is_cancelled is True
+        assert result.trains[0].cancel_reason == 'Crew unavailable'
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_delayed_train(self, mock_client_class):
@@ -395,8 +396,9 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('VIC', filter_list=['BTN'])
         
-        assert result['trains'][0]['delay_reason'] == 'Track works'
-        assert result['trains'][0]['etd'] == '16:05'
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.trains[0].delay_reason == 'Track works'
+        assert result.trains[0].etd == '16:05'
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_no_trains(self, mock_client_class):
@@ -412,9 +414,9 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('RMT', filter_list=['STP'])
         
-        assert result['station'] == 'Remote Station'
-        assert result['trains'] == []
-        assert 'error' not in result
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.station == 'Remote Station'
+        assert result.trains == []
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_exception_handling(self, mock_client_class):
@@ -423,9 +425,9 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('EUS', filter_list=['MAN'])
         
-        assert 'error' in result
-        assert 'API unavailable' in result['message']
-        assert 'Unable to fetch next departures with details' in result['message']
+        assert isinstance(result, train_tools.DetailedDeparturesError)
+        assert 'API unavailable' in result.message
+        assert 'Unable to fetch next departures with details' in result.message
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_station_code_uppercase(self, mock_client_class):
@@ -488,10 +490,11 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('EUS', filter_list=['MAN'])
         
-        assert result['trains'][0]['service_id'] == 'N/A'
-        assert result['trains'][0]['service_type'] == 'Unknown'
-        assert result['trains'][0]['length'] == 'Unknown'
-        assert result['trains'][0]['is_cancelled'] is False
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.trains[0].service_id == 'N/A'
+        assert result.trains[0].service_type == 'Unknown'
+        assert result.trains[0].length == 'Unknown'
+        assert result.trains[0].is_cancelled is False
 
 
 
