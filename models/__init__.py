@@ -14,6 +14,9 @@ from .affected_operator import AffectedOperator
 from .incident import Incident
 from .station_messages_response import StationMessagesResponse
 from .station_messages_error import StationMessagesError
+from .service_location import ServiceLocation
+from .service_details_response import ServiceDetailsResponse
+from .service_details_error import ServiceDetailsError
 
 __all__ = [
     'TrainDeparture',
@@ -26,4 +29,7 @@ __all__ = [
     'Incident',
     'StationMessagesResponse',
     'StationMessagesError',
+    'ServiceLocation',
+    'ServiceDetailsResponse',
+    'ServiceDetailsError',
 ]

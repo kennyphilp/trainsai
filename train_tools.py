@@ -38,6 +38,9 @@ from models import (
     DetailedDeparturesResponse,
     DetailedTrainDeparture,
     Incident,
+    ServiceDetailsError,
+    ServiceDetailsResponse,
+    ServiceLocation,
     StationMessagesError,
     StationMessagesResponse,
     TrainDeparture,
@@ -52,6 +55,8 @@ load_dotenv()
 
 DEFAULT_WSDL = 'http://lite.realtime.nationalrail.co.uk/OpenLDBWS/wsdl.aspx?ver=2021-11-01'
 INCIDENTS_API_URL = 'https://api1.raildata.org.uk/1010-knowlegebase-incidents-xml-feed1_0/incidents.xml'
+SERVICE_DETAILS_API_URL = 'https://api1.raildata.org.uk/1010-service-details1_2/LDBWS/api/20220120/GetServiceDetails'
+SERVICE_DETAILS_API_KEY = 'FI7Es7TryzBsOo7EhvMxmVL5RbmZAUMH9Md23sTJCjQCjgYC'
 
 # XML Namespaces for incident feed
 INCIDENT_NAMESPACES = {
@@ -488,6 +493,117 @@ class TrainTools:
         return None
     
     # ============================================================================
+    # Service Details
+    # ============================================================================
+    
+    def get_service_details(self, service_id: str) -> Union[ServiceDetailsResponse, ServiceDetailsError]:
+        """
+        Retrieve detailed information about a specific train service.
+        
+        Fetches comprehensive service details from the National Rail Service Details API,
+        including the complete calling pattern (all stops), real-time status updates,
+        cancellation/delay reasons, and operator information.
+        
+        Args:
+            service_id: Unique service identifier (obtained from departure board queries)
+        
+        Returns:
+            ServiceDetailsResponse: Success response with detailed service information
+            ServiceDetailsError: Error response with error details
+        
+        Example:
+            >>> details = tt.get_service_details('eWyKjGw1P55lRvA9ReEvBg==')
+            >>> if isinstance(details, ServiceDetailsResponse):
+            ...     print(f"Service from {details.origin} to {details.destination}")
+            ...     for stop in details.calling_points:
+            ...         print(f"  {stop.location_name} - {stop.scheduled_time}")
+        """
+        try:
+            url = f"{SERVICE_DETAILS_API_URL}/{service_id}"
+            headers = {'x-apikey': SERVICE_DETAILS_API_KEY, 'User-Agent': 'TrainTools/1.0'}
+            
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract service information
+            service_data = data
+            if 'GetServiceDetailsResult' in data:
+                service_data = data['GetServiceDetailsResult']
+            
+            # Parse calling points
+            calling_points = []
+            if 'subsequentCallingPoints' in service_data:
+                calling_points_data = service_data.get('subsequentCallingPoints', [])
+                if isinstance(calling_points_data, list):
+                    for cp_group in calling_points_data:
+                        if 'callingPoint' in cp_group:
+                            points = cp_group['callingPoint']
+                            if isinstance(points, list):
+                                for point in points:
+                                    # Convert length to string if it's an integer
+                                    length_value = point.get('length')
+                                    length_str = str(length_value) if length_value is not None else None
+                                    
+                                    calling_points.append(ServiceLocation(
+                                        location_name=point.get('locationName', 'Unknown'),
+                                        crs=point.get('crs', 'N/A'),
+                                        scheduled_time=point.get('st'),
+                                        estimated_time=point.get('et'),
+                                        actual_time=point.get('at'),
+                                        is_cancelled=point.get('isCancelled', False),
+                                        length=length_str,
+                                        platform=point.get('platform')
+                                    ))
+            
+            # Extract origin and destination
+            origin = None
+            destination = None
+            if 'origin' in service_data and isinstance(service_data['origin'], list) and service_data['origin']:
+                if 'location' in service_data['origin'][0] and isinstance(service_data['origin'][0]['location'], list):
+                    origin = service_data['origin'][0]['location'][0].get('locationName')
+            if 'destination' in service_data and isinstance(service_data['destination'], list) and service_data['destination']:
+                if 'location' in service_data['destination'][0] and isinstance(service_data['destination'][0]['location'], list):
+                    destination = service_data['destination'][0]['location'][0].get('locationName')
+            
+            return ServiceDetailsResponse(
+                service_id=service_id,
+                operator=service_data.get('operator'),
+                operator_code=service_data.get('operatorCode'),
+                service_type=service_data.get('serviceType'),
+                is_cancelled=service_data.get('isCancelled', False),
+                cancel_reason=service_data.get('cancelReason'),
+                delay_reason=service_data.get('delayReason'),
+                origin=origin,
+                destination=destination,
+                std=service_data.get('std'),
+                etd=service_data.get('etd'),
+                sta=service_data.get('sta'),
+                eta=service_data.get('eta'),
+                platform=service_data.get('platform'),
+                calling_points=calling_points,
+                message=f"Service details retrieved for {service_id}"
+            )
+            
+        except requests.HTTPError as http_err:
+            status = getattr(http_err.response, 'status_code', 'unknown')
+            return ServiceDetailsError(
+                error=f"HTTP {status}",
+                message=f"Service details request failed with status {status}: {http_err}"
+            )
+        except requests.RequestException as e:
+            return ServiceDetailsError(
+                error=str(e),
+                message=f"Unable to fetch service details: {str(e)}"
+            )
+        except Exception as e:
+            return ServiceDetailsError(
+                error=str(e),
+                message=f"Error parsing service details: {str(e)}"
+            )
+    
+    # ============================================================================
     # Formatting & Display
     # ============================================================================
     
@@ -543,14 +659,16 @@ class TrainTools:
         """
         Demo: Display comprehensive departure information for Glasgow Central.
         
-        Demonstrates all three main API methods:
+        Demonstrates all four main API methods:
         1. Basic departure board
         2. Detailed departures with cancellation/delay info
-        3. Network-wide incident messages
+        3. Service details with full calling pattern
+        4. Network-wide incident messages
         """
         self._print_header()
         self._demo_basic_board()
         self._demo_detailed_departures()
+        self._demo_service_details()
         self._demo_incident_messages()
         self._print_footer()
     
@@ -580,13 +698,14 @@ class TrainTools:
         
         if isinstance(details_data, DetailedDeparturesResponse) and details_data.trains:
             print(f"\nStation: {details_data.station}")
-            print(f"{'STD':<8} {'ETD':<8} {'Destination':<25} {'Status':<15} {'Reason':<20}")
-            print("-" * 76)
+            print(f"{'Service ID':<20} {'STD':<8} {'ETD':<8} {'Destination':<25} {'Status':<15} {'Reason':<20}")
+            print("-" * 96)
             
             for train in details_data.trains:
-                status = "Cancelled" if train.is_cancelled else "On time" if train.etd == train.std else "Delayed"
+                status = "Cancelled" if train.is_cancelled else train.etd
                 reason = train.cancel_reason or train.delay_reason or "-"
-                print(f"{train.std:<8} {train.etd:<8} {train.destination:<25} {status:<15} {reason:<20}")
+                service_id = train.service_id or "N/A"
+                print(f"{service_id:<20} {train.std:<8} {train.etd:<8} {train.destination:<25} {status:<15} {reason:<20}")
         elif isinstance(details_data, DetailedDeparturesError):
             print(details_data.message)
         else:
@@ -613,6 +732,51 @@ class TrainTools:
                 severity = (incident.severity or 'N/A')[:10]
                 title = (incident.title or 'No title')[:43]
                 print(f"{incident_id:<15} {category:<12} {severity:<12} {title:<45}")
+    
+    def _demo_service_details(self) -> None:
+        """Demonstrate service details retrieval."""
+        print("\n📋 Service Details:")
+        print("-" * 70)
+        
+        # First get a departure board to obtain a service ID
+        board_data = self.get_departure_board('GLC', num_rows=1)
+        
+        if isinstance(board_data, DepartureBoardResponse) and board_data.trains:
+            # Get detailed departures to obtain service ID
+            details_data = self.get_next_departures_with_details('GLC', time_window=120)
+            
+            if isinstance(details_data, DetailedDeparturesResponse) and details_data.trains:
+                # Use the first train's service ID
+                first_train = details_data.trains[0]
+                service_id = first_train.service_id
+                
+                if service_id and service_id != 'N/A':
+                    print(f"Fetching details for service: {service_id}")
+                    service_details = self.get_service_details(service_id)
+                    
+                    if isinstance(service_details, ServiceDetailsResponse):
+                        print(f"\nService: {service_details.origin} → {service_details.destination}")
+                        print(f"Operator: {service_details.operator or 'Unknown'}")
+                        print(f"Service Type: {service_details.service_type or 'Unknown'}")
+                        print(f"Status: {'Cancelled' if service_details.is_cancelled else 'Running'}")
+                        
+                        if service_details.calling_points:
+                            print(f"\nCalling Points ({len(service_details.calling_points)} stops):")
+                            print(f"{'Station':<30} {'Scheduled':<10} {'Expected':<10} {'Platform':<8}")
+                            print("-" * 58)
+                            for stop in service_details.calling_points[:10]:  # Show first 10
+                                sched = stop.scheduled_time or '-'
+                                est = stop.estimated_time or '-'
+                                plat = stop.platform or 'TBA'
+                                print(f"{stop.location_name:<30} {sched:<10} {est:<10} {plat:<8}")
+                    elif isinstance(service_details, ServiceDetailsError):
+                        print(f"Error: {service_details.message}")
+                else:
+                    print("No valid service ID available")
+            else:
+                print("Unable to fetch departure details for service ID")
+        else:
+            print("Unable to fetch departures to get service ID")
     
     def _get_train_status(self, train: Dict) -> str:
         """Determine train status from train details."""
@@ -659,6 +823,11 @@ def format_departures(board_data: Union[DepartureBoardResponse, DepartureBoardEr
 def get_station_messages(station_code: Optional[str] = None) -> Union[StationMessagesResponse, StationMessagesError]:
     """Module-level wrapper for TrainTools.get_station_messages()."""
     return _default_tools.get_station_messages(station_code)
+
+
+def get_service_details(service_id: str) -> Union[ServiceDetailsResponse, ServiceDetailsError]:
+    """Module-level wrapper for TrainTools.get_service_details()."""
+    return _default_tools.get_service_details(service_id)
 
 
 def main_demo() -> None:
