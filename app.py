@@ -16,6 +16,7 @@ from flask import Flask, render_template, request, jsonify, session
 import secrets
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_cors import CORS
 from scotrail_agent import ScotRailAgent
 
 app = Flask(__name__)
@@ -38,6 +39,18 @@ limiter = Limiter(
 def should_limit():
     """Check if rate limiting should be applied (not in testing mode)."""
     return not app.config.get('TESTING', False) and os.getenv('RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+
+# Configure CORS
+CORS_ENABLED = os.getenv('CORS_ENABLED', 'true').lower() == 'true'
+CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
+
+if CORS_ENABLED:
+    CORS(app,
+         origins=CORS_ORIGINS,
+         methods=['GET', 'POST', 'OPTIONS'],
+         allow_headers=['Content-Type', 'Authorization'],
+         supports_credentials=True,
+         max_age=600)
 
 
 # Configure logging

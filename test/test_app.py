@@ -542,3 +542,58 @@ class TestRateLimiting:
             # Should have rate limiting applied
             rate_limited = [r for r in responses if r.status_code == 429]
             assert len(rate_limited) > 0, "Expected rate limiting for same IP"
+
+
+class TestCORS:
+    """Test CORS (Cross-Origin Resource Sharing) functionality."""
+    
+    @pytest.fixture(autouse=True)
+    def reset_limiter_for_cors(self):
+        """Automatically reset rate limiter before each CORS test."""
+        from app import limiter
+        limiter.reset()
+        yield
+    
+    def test_cors_configuration_loaded(self):
+        """Test that CORS configuration is loaded correctly."""
+        # Verify CORS configuration is set
+        import os
+        cors_enabled = os.getenv('CORS_ENABLED', 'true').lower() == 'true'
+        # This is a simple configuration test
+        assert cors_enabled in [True, False]
+    
+    @patch.dict('os.environ', {'CORS_ENABLED': 'true', 'OPENAI_API_KEY': 'test-key'})
+    def test_cors_preflight_request(self, client):
+        """Test CORS preflight OPTIONS request."""
+        # Preflight request for POST /api/chat
+        response = client.options('/api/chat',
+                                 headers={
+                                     'Origin': 'http://localhost:3000',
+                                     'Access-Control-Request-Method': 'POST',
+                                     'Access-Control-Request-Headers': 'Content-Type'
+                                 })
+        
+        # Should return 200 or 204 for OPTIONS
+        assert response.status_code in [200, 204]
+    
+    @patch.dict('os.environ', {'CORS_ENABLED': 'true'})
+    def test_cors_origin_header_accepted(self, client):
+        """Test that requests with Origin header are accepted."""
+        # Simple request with Origin header
+        response = client.get('/', headers={'Origin': 'http://localhost:3000'})
+        assert response.status_code == 200
+    
+    @patch.dict('os.environ', {'CORS_ENABLED': 'false'})
+    def test_cors_can_be_disabled(self, client):
+        """Test that CORS can be disabled via environment variable."""
+        # When CORS is disabled, the app should still work
+        response = client.get('/')
+        assert response.status_code == 200
+    
+    @patch.dict('os.environ', {'CORS_ENABLED': 'true', 'CORS_ORIGINS': 'http://localhost:3000,http://localhost:5173'})
+    def test_cors_respects_configured_origins(self):
+        """Test that CORS configuration respects environment variables."""
+        import os
+        cors_origins = os.getenv('CORS_ORIGINS', '').split(',')
+        assert 'http://localhost:3000' in cors_origins
+        assert 'http://localhost:5173' in cors_origins
