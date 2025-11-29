@@ -176,14 +176,34 @@ class TrainTools:
             num_rows: Maximum number of departures to return (default: 10)
         
         Returns:
-            DepartureBoardResponse: Success response with station and trains data
-            DepartureBoardError: Error response with error details
+            Union[DepartureBoardResponse, DepartureBoardError]
+            
+            On Success - DepartureBoardResponse with attributes:
+                - station (str): Full name of the station
+                - trains (List[TrainDeparture]): List of departing trains, each with:
+                    * std (str): Scheduled Time of Departure (e.g., "14:30")
+                    * etd (str): Estimated Time of Departure (e.g., "14:32" or "On time")
+                    * destination (str): Destination station name
+                    * platform (str): Platform number or "TBA" if not available
+                    * operator (str): Train operating company name
+                - message (str): Summary message (e.g., "Found 5 departing trains from London Euston")
+            
+            On Error - DepartureBoardError with attributes:
+                - error (str): Brief error type (e.g., "Connection failed")
+                - message (str): Detailed error description
+        
+        Usage Pattern:
+            Always check the response type using isinstance() before accessing attributes.
+            The trains list will be empty if no departures are available.
                 
         Example:
             >>> board = tt.get_departure_board('EUS', num_rows=5)
             >>> if isinstance(board, DepartureBoardResponse):
+            ...     print(f"Station: {board.station}")
             ...     for train in board.trains:
-            ...         print(f"{train.std} to {train.destination}")
+            ...         print(f"{train.std} to {train.destination} - Platform {train.platform}")
+            >>> else:
+            ...     print(f"Error: {board.message}")
         """
         try:
             client = self._create_soap_client()
@@ -238,24 +258,53 @@ class TrainTools:
         
         Args:
             station_code: Three-letter CRS code (e.g., 'EUS', 'GLC')
-            filter_list: Optional destination CRS codes. None = all departures
+            filter_list: Optional list/set of destination CRS codes. None = all departures.
+                        Must be an iterable (list/set/tuple), NOT a string.
             time_offset: Minutes from now to start search (default: 0)
             time_window: Search window in minutes (default: 120)
         
         Returns:
-            DetailedDeparturesResponse: Success response with detailed train data
-            DetailedDeparturesError: Error response with error details
+            Union[DetailedDeparturesResponse, DetailedDeparturesError]
+            
+            On Success - DetailedDeparturesResponse with attributes:
+                - station (str): Full name of the station
+                - trains (List[DetailedTrainDeparture]): List of trains with extended details:
+                    * std (str): Scheduled Time of Departure
+                    * etd (str): Estimated Time of Departure
+                    * destination (str): Destination station name
+                    * platform (Optional[str]): Platform number or "TBA"
+                    * operator (Optional[str]): Operating company name
+                    * service_id (Optional[str]): Unique service identifier for use with get_service_details()
+                    * service_type (Optional[str]): Type of service (e.g., "Express", "Stopping")
+                    * length (Optional[str]): Number of carriages (as string)
+                    * is_cancelled (bool): True if service is cancelled
+                    * cancel_reason (Optional[str]): Reason for cancellation if applicable
+                    * delay_reason (Optional[str]): Reason for delay if applicable
+                - message (str): Summary message
+            
+            On Error - DetailedDeparturesError with attributes:
+                - error (str): Brief error type
+                - message (str): Detailed error description
+        
+        Important Notes:
+            - Use service_id from response to get full calling pattern via get_service_details()
+            - Check is_cancelled before relying on departure times
+            - cancel_reason and delay_reason provide disruption context
+            - Empty trains list means no services match criteria
                 
         Raises:
-            ValueError: If filter_list is invalid (string or empty iterable)
+            Returns DetailedDeparturesError if filter_list is a string or empty iterable
         
         Example:
             >>> # All departures with details
             >>> details = tt.get_next_departures_with_details('EUS')
             >>> if isinstance(details, DetailedDeparturesResponse):
             ...     for train in details.trains:
-            ...         if train.is_cancelled:
-            ...             print(f"Cancelled: {train.destination}")
+            ...         status = "Cancelled" if train.is_cancelled else train.etd
+            ...         print(f"{train.std} to {train.destination} - {status}")
+            ...         if train.service_id:
+            ...             # Can use service_id to get full details
+            ...             full_details = tt.get_service_details(train.service_id)
             >>> 
             >>> # Filtered to specific destinations
             >>> details = tt.get_next_departures_with_details('EUS', ['MAN', 'LIV'])
@@ -369,20 +418,53 @@ class TrainTools:
                          None returns all current incidents across the network.
         
         Returns:
-            StationMessagesResponse: Success response with list of incidents
-            StationMessagesError: Error response with error details
+            Union[StationMessagesResponse, StationMessagesError]
+            
+            On Success - StationMessagesResponse with attributes:
+                - messages (List[Incident]): List of incident/disruption objects, each with:
+                    * id (Optional[str]): Unique incident reference number
+                    * category (str): "planned" or "unplanned"
+                    * severity (Optional[str]): Priority level (e.g., "1", "2", "3")
+                    * title (Optional[str]): Brief incident summary
+                    * message (Optional[str]): Detailed incident description
+                    * start_time (Optional[str]): ISO 8601 datetime when incident started
+                    * end_time (Optional[str]): ISO 8601 datetime when incident expected to end
+                    * last_updated (Optional[str]): ISO 8601 datetime of last update
+                    * operators (List[AffectedOperator]): Affected train operators, each with:
+                        - ref (Optional[str]): Operator reference code
+                        - name (Optional[str]): Operator full name
+                    * routes_affected (Optional[str]): Description of affected routes/stations
+                    * is_planned (bool): True for planned engineering works, False for disruptions
+                - message (str): Summary (e.g., "Found 15 incidents for station PAD")
+            
+            On Error - StationMessagesError with attributes:
+                - error (str): Brief error type (e.g., "Missing API key", "HTTP 403")
+                - message (str): Detailed error description
+        
+        Important Notes:
+            - Requires DISRUPTIONS_API_KEY or RDG_API_KEY environment variable
+            - Returns network-wide incidents when station_code is None
+            - Filter by category to separate planned works from unplanned disruptions
+            - Check is_planned field to distinguish engineering works from service issues
+            - Empty messages list means no incidents match criteria
+            - Severity "1" is highest priority, "3" is lowest
         
         Example:
             >>> # All network incidents
             >>> incidents = tt.get_station_messages()
             >>> if isinstance(incidents, StationMessagesResponse):
             ...     print(f"Total incidents: {len(incidents.messages)}")
+            ...     for incident in incidents.messages:
+            ...         work_type = "Planned" if incident.is_planned else "Unplanned"
+            ...         print(f"[{work_type}] {incident.title}")
+            ...         print(f"  Routes: {incident.routes_affected}")
+            ...         for op in incident.operators:
+            ...             print(f"  Operator: {op.name}")
+            >>> else:
+            ...     print(f"Error: {incidents.message}")
             >>> 
             >>> # Station-specific incidents
             >>> incidents = tt.get_station_messages('PAD')
-            >>> if isinstance(incidents, StationMessagesResponse):
-            ...     for incident in incidents.messages:
-            ...         print(f"{incident.title}: {incident.message}")
         """
         try:
             if not self.disruptions_api_key:
@@ -505,18 +587,76 @@ class TrainTools:
         cancellation/delay reasons, and operator information.
         
         Args:
-            service_id: Unique service identifier (obtained from departure board queries)
+            service_id: Unique service identifier obtained from get_next_departures_with_details()
+                       in the DetailedTrainDeparture.service_id field
         
         Returns:
-            ServiceDetailsResponse: Success response with detailed service information
-            ServiceDetailsError: Error response with error details
+            Union[ServiceDetailsResponse, ServiceDetailsError]
+            
+            On Success - ServiceDetailsResponse with attributes:
+                - service_id (str): The service identifier that was queried
+                - operator (Optional[str]): Full name of train operating company
+                - operator_code (Optional[str]): Short code for operator (e.g., "VT", "GWR")
+                - service_type (Optional[str]): Service classification (e.g., "train", "bus")
+                - is_cancelled (bool): True if entire service is cancelled
+                - cancel_reason (Optional[str]): Reason for cancellation if applicable
+                - delay_reason (Optional[str]): Reason for delay if applicable
+                - origin (Optional[str]): Starting station name
+                - destination (Optional[str]): Final destination station name
+                - std (Optional[str]): Scheduled Time of Departure from origin
+                - etd (Optional[str]): Estimated Time of Departure from origin
+                - sta (Optional[str]): Scheduled Time of Arrival at destination
+                - eta (Optional[str]): Estimated Time of Arrival at destination
+                - platform (Optional[str]): Departure platform number
+                - calling_points (List[ServiceLocation]): Complete list of stops, each with:
+                    * location_name (str): Station name
+                    * crs (str): Three-letter station code
+                    * scheduled_time (Optional[str]): Scheduled arrival/departure time
+                    * estimated_time (Optional[str]): Estimated arrival/departure time
+                    * actual_time (Optional[str]): Actual time if already occurred
+                    * is_cancelled (bool): True if stop is cancelled
+                    * length (Optional[str]): Train length at this stop (number of carriages)
+                    * platform (Optional[str]): Platform number at this stop
+                - message (str): Summary message
+            
+            On Error - ServiceDetailsError with attributes:
+                - error (str): Brief error type (e.g., "HTTP 404", "Network error")
+                - message (str): Detailed error description
+        
+        Important Notes:
+            - Service IDs are obtained from get_next_departures_with_details() responses
+            - Service IDs are time-sensitive and may expire after the service completes
+            - calling_points list shows the complete journey with real-time updates
+            - Check is_cancelled on both service and individual calling_points
+            - Times are in 24-hour format (e.g., "14:30")
+            - estimated_time or actual_time override scheduled_time when available
+            - Empty calling_points list may indicate service hasn't started or data unavailable
+        
+        Workflow Pattern:
+            1. Call get_next_departures_with_details() to get trains
+            2. Extract service_id from a DetailedTrainDeparture object
+            3. Call get_service_details(service_id) to get full journey details
+            4. Use calling_points to inform passengers of all stops and times
         
         Example:
-            >>> details = tt.get_service_details('eWyKjGw1P55lRvA9ReEvBg==')
-            >>> if isinstance(details, ServiceDetailsResponse):
-            ...     print(f"Service from {details.origin} to {details.destination}")
-            ...     for stop in details.calling_points:
-            ...         print(f"  {stop.location_name} - {stop.scheduled_time}")
+            >>> # Get departure board with details
+            >>> departures = tt.get_next_departures_with_details('EUS')
+            >>> if isinstance(departures, DetailedDeparturesResponse) and departures.trains:
+            ...     # Get full details for first train
+            ...     train = departures.trains[0]
+            ...     if train.service_id:
+            ...         details = tt.get_service_details(train.service_id)
+            ...         if isinstance(details, ServiceDetailsResponse):
+            ...             print(f"Journey: {details.origin} to {details.destination}")
+            ...             print(f"Operator: {details.operator}")
+            ...             print(f"Cancelled: {details.is_cancelled}")
+            ...             print(f"\nStops ({len(details.calling_points)}):")
+            ...             for stop in details.calling_points:
+            ...                 time = stop.actual_time or stop.estimated_time or stop.scheduled_time
+            ...                 status = "CANCELLED" if stop.is_cancelled else time
+            ...                 print(f"  {stop.location_name} ({stop.crs}) - {status} - Platform {stop.platform or 'TBA'}")
+            ...         else:
+            ...             print(f"Error getting details: {details.message}")
         """
         try:
             url = f"{SERVICE_DETAILS_API_URL}/{service_id}"
