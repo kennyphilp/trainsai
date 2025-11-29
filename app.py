@@ -206,6 +206,16 @@ def health_check():
 
 
 if __name__ == '__main__':
-    logger.info('Starting ScotRail Train Travel Advisor on http://0.0.0.0:5001')
+    # Flask server configuration from environment (production-safe defaults)
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+    port = int(os.getenv('FLASK_PORT', '5001'))
+    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    
+    logger.info(f'Starting ScotRail Train Travel Advisor on http://{host}:{port}')
+    logger.info(f'Debug mode: {debug_mode}')
     logger.info(f'Session limits: MAX_SESSIONS={MAX_SESSIONS}, SESSION_TTL_HOURS={SESSION_TTL_HOURS}')
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    
+    if debug_mode:
+        logger.warning('Running in DEBUG mode - not suitable for production!')
+    
+    app.run(debug=debug_mode, host=host, port=port)
