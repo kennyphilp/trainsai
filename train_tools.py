@@ -97,12 +97,12 @@ class TrainTools:
                 'message': f"Unable to fetch departure information: {str(e)}"
             }
 
-    def get_next_departures_with_details(self, station_code: str, filter_list: Union[Iterable[str], Sequence[str], Set[str]], time_offset: int = 0, time_window: int = 120) -> dict:
+    def get_next_departures_with_details(self, station_code: str, filter_list: Union[Iterable[str], Sequence[str], Set[str], None] = None, time_offset: int = 0, time_window: int = 120) -> dict:
         """Fetch next departures with detailed information for a given station.
 
         Parameters:
         - station_code: CRS code for origin station (e.g., 'EUS').
-        - filter_list: Iterable of destination CRS codes to filter on (list/tuple/set). Must contain at least one item. Plain strings are not accepted.
+        - filter_list: Optional iterable of destination CRS codes to filter on (list/tuple/set). If None, uses GetDepBoardWithDetails instead. Plain strings are not accepted.
         - time_offset: Minutes offset from current time (default 0).
         - time_window: Time window in minutes to search (default 120).
         """
@@ -112,51 +112,86 @@ class TrainTools:
 
             header_value = self._make_header()
 
-            # Build filter list for SOAP call; API requires at least one destination CRS
-            # Reject a single string (iterable of characters) and ensure we have at least one code
-            if isinstance(filter_list, str):
-                raise ValueError("filter_list must be an iterable of CRS codes (e.g., list/tuple/set), not a string")
-            if not filter_list:
-                raise ValueError("filter_list must be a non-empty iterable of destination CRS codes")
-            filter_crs = [str(c).upper() for c in filter_list if str(c).strip()]
-            if not filter_crs:
-                raise ValueError("filter_list must contain at least one valid CRS code")
+            # If no filter_list provided, use GetDepBoardWithDetails
+            if filter_list is None:
+                res = client.service.GetDepBoardWithDetails(
+                    numRows=150,
+                    crs=station_code.upper(),
+                    timeOffset=time_offset,
+                    timeWindow=time_window,
+                    _soapheaders=[header_value]
+                )
+            else:
+                # Build filter list for SOAP call; API requires at least one destination CRS
+                # Reject a single string (iterable of characters) and ensure we have at least one code
+                if isinstance(filter_list, str):
+                    raise ValueError("filter_list must be an iterable of CRS codes (e.g., list/tuple/set), not a string")
+                if not filter_list:
+                    raise ValueError("filter_list must be a non-empty iterable of destination CRS codes")
+                filter_crs = [str(c).upper() for c in filter_list if str(c).strip()]
+                if not filter_crs:
+                    raise ValueError("filter_list must contain at least one valid CRS code")
 
-            res = client.service.GetNextDeparturesWithDetails(
-                crs=station_code.upper(),
-                filterList={'crs': filter_crs},
-                timeOffset=time_offset,
-                timeWindow=time_window,
-                _soapheaders=[header_value]
-            )
+                res = client.service.GetNextDeparturesWithDetails(
+                    crs=station_code.upper(),
+                    filterList={'crs': filter_crs},
+                    timeOffset=time_offset,
+                    timeWindow=time_window,
+                    _soapheaders=[header_value]
+                )
 
             trains = []
-            # Response structure: departures.destination contains DepartureItemWithCallingPoints,
-            # each with a service element containing detailed information
-            if hasattr(res, 'departures') and res.departures and hasattr(res.departures, 'destination'):
-                for destination_item in res.departures.destination:
-                    service = destination_item.service
-                    
-                    # Extract destination name from the service's destination element
-                    dest_name = "Unknown"
-                    if hasattr(service, 'destination') and service.destination:
-                        if hasattr(service.destination, 'location') and service.destination.location:
-                            dest_name = service.destination.location[0].locationName
-                    
-                    train_detail = {
-                        'std': service.std,
-                        'etd': service.etd,
-                        'destination': dest_name,
-                        'platform': getattr(service, 'platform', 'TBA'),
-                        'operator': getattr(service, 'operator', 'Unknown'),
-                        'service_id': getattr(service, 'serviceID', 'N/A'),
-                        'service_type': getattr(service, 'serviceType', 'Unknown'),
-                        'length': getattr(service, 'length', 'Unknown'),
-                        'is_cancelled': getattr(service, 'isCancelled', False),
-                        'cancel_reason': getattr(service, 'cancelReason', None),
-                        'delay_reason': getattr(service, 'delayReason', None),
-                    }
-                    trains.append(train_detail)
+            # Handle response structure based on API call type
+            if filter_list is None:
+                # GetDepBoardWithDetails returns trainServices
+                if hasattr(res, 'trainServices') and res.trainServices:
+                    for service in res.trainServices.service:
+                        # Extract destination name
+                        dest_name = "Unknown"
+                        if hasattr(service, 'destination') and service.destination:
+                            if hasattr(service.destination, 'location') and service.destination.location:
+                                dest_name = service.destination.location[0].locationName
+                        
+                        train_detail = {
+                            'std': service.std,
+                            'etd': service.etd,
+                            'destination': dest_name,
+                            'platform': getattr(service, 'platform', 'TBA'),
+                            'operator': getattr(service, 'operator', 'Unknown'),
+                            'service_id': getattr(service, 'serviceID', 'N/A'),
+                            'service_type': getattr(service, 'serviceType', 'Unknown'),
+                            'length': getattr(service, 'length', 'Unknown'),
+                            'is_cancelled': getattr(service, 'isCancelled', False),
+                            'cancel_reason': getattr(service, 'cancelReason', None),
+                            'delay_reason': getattr(service, 'delayReason', None),
+                        }
+                        trains.append(train_detail)
+            else:
+                # GetNextDeparturesWithDetails returns departures.destination structure
+                if hasattr(res, 'departures') and res.departures and hasattr(res.departures, 'destination'):
+                    for destination_item in res.departures.destination:
+                        service = destination_item.service
+                        
+                        # Extract destination name from the service's destination element
+                        dest_name = "Unknown"
+                        if hasattr(service, 'destination') and service.destination:
+                            if hasattr(service.destination, 'location') and service.destination.location:
+                                dest_name = service.destination.location[0].locationName
+                        
+                        train_detail = {
+                            'std': service.std,
+                            'etd': service.etd,
+                            'destination': dest_name,
+                            'platform': getattr(service, 'platform', 'TBA'),
+                            'operator': getattr(service, 'operator', 'Unknown'),
+                            'service_id': getattr(service, 'serviceID', 'N/A'),
+                            'service_type': getattr(service, 'serviceType', 'Unknown'),
+                            'length': getattr(service, 'length', 'Unknown'),
+                            'is_cancelled': getattr(service, 'isCancelled', False),
+                            'cancel_reason': getattr(service, 'cancelReason', None),
+                            'delay_reason': getattr(service, 'delayReason', None),
+                        }
+                        trains.append(train_detail)
 
             return {
                 'station': res.locationName,
@@ -170,14 +205,14 @@ class TrainTools:
                 'message': f"Unable to fetch next departures with details: {str(e)}"
             }
 
-    def get_station_messages(self, station_code: str) -> dict:
+    def get_station_messages(self) -> dict:
         """Fetch station disruption/incident messages.
 
-        Updated endpoint:
+        Endpoint:
         GET https://api1.raildata.org.uk/1010-knowlegebase-incidents-xml-feed1_0/incidents.xml
 
-        The feed is XML; for backward compatibility tests we also attempt JSON first.
-        Returns normalized messages plus raw payload (XML string or JSON object).
+        The feed returns XML with PtIncident elements containing incident information.
+        Returns normalized messages plus raw XML payload.
         """
         try:
             if not self.disruptions_api_key:
@@ -185,90 +220,115 @@ class TrainTools:
                     'error': 'Missing API key',
                     'message': 'DISRUPTIONS_API_KEY (or RDG_API_KEY) is not set in environment.'
                 }
-
-            crs = station_code.upper()
+            
             url = "https://api1.raildata.org.uk/1010-knowlegebase-incidents-xml-feed1_0/incidents.xml"
+            
             headers = {
-                'x-apikey': self.disruptions_api_key
+                'x-apikey': self.disruptions_api_key,
+                'User-Agent': 'TrainTools/1.0'
             }
 
             resp = requests.get(url, headers=headers, timeout=15)
             resp.raise_for_status()
-            content_type = resp.headers.get('Content-Type', '')
 
-            json_payload = None
-            xml_root = None
-            raw_data = None
-            # Try JSON first (keeps existing tests working)
+            # Parse XML response
+            import xml.etree.ElementTree as ET
             try:
-                json_payload = resp.json()
-                raw_data = json_payload
-            except ValueError:
-                if 'xml' in content_type or resp.text.strip().startswith('<'):
-                    import xml.etree.ElementTree as ET
-                    try:
-                        xml_root = ET.fromstring(resp.text)
-                        raw_data = resp.text
-                    except ET.ParseError as pe:
-                        return {
-                            'error': 'ParseError',
-                            'message': f'Unable to parse XML station messages: {pe}'
-                        }
-                else:
-                    return {
-                        'error': 'UnsupportedFormat',
-                        'message': 'Response was neither valid JSON nor XML.'
-                    }
+                xml_root = ET.fromstring(resp.text)
+            except ET.ParseError as pe:
+                return {
+                    'error': 'ParseError',
+                    'message': f'Unable to parse XML station messages: {pe}'
+                }
 
-            # Collect items
-            items = []
-            if json_payload is not None:
-                if isinstance(json_payload, list):
-                    items = json_payload
-                elif isinstance(json_payload, dict):
-                    for key in ('messages', 'stationMessages', 'data', 'results', 'incidents'):
-                        if key in json_payload and isinstance(json_payload[key], list):
-                            items = json_payload[key]
-                            break
-            elif xml_root is not None:
-                # Attempt both incident and message elements
-                for elem in xml_root.findall('.//incident') + xml_root.findall('.//message'):
-                    node_dict = {}
-                    for child in list(elem):
-                        node_dict[child.tag.lower()] = (child.text or '').strip()
-                    items.append(node_dict)
+            # Define namespace map for the XML
+            ns = {
+                'inc': 'http://nationalrail.co.uk/xml/incident',
+                'com': 'http://nationalrail.co.uk/xml/common'
+            }
 
-            def pick(d: dict, *keys):
-                # Case-insensitive lookup for keys
-                lower_map = {k.lower(): v for k, v in d.items()}
-                for k in keys:
-                    k_lower = k.lower()
-                    if k_lower in lower_map and lower_map[k_lower] is not None:
-                        return lower_map[k_lower]
-                return None
+            # Extract all PtIncident elements
+            incidents = xml_root.findall('.//inc:PtIncident', ns)
+            if not incidents:
+                # Try without namespace if namespaced search fails
+                incidents = xml_root.findall('.//PtIncident')
 
             normalized = []
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
+            for incident in incidents:
+                # Helper function to get text from element (handles namespaces)
+                def get_text(elem, path, namespaces=ns):
+                    # First try with incident namespace if path doesn't have prefix
+                    if not ':' in path and not path.startswith('.//'):
+                        try:
+                            found = elem.find('inc:' + path, namespaces)
+                            if found is not None and found.text:
+                                return found.text.strip()
+                        except:
+                            pass
+                    
+                    # Try the path as given
+                    try:
+                        found = elem.find(path, namespaces)
+                        if found is not None and found.text:
+                            return found.text.strip()
+                    except:
+                        pass
+                    
+                    # Try without namespace
+                    try:
+                        simple_path = path.split(':')[-1] if ':' in path else path
+                        found = elem.find('.//' + simple_path)
+                        if found is not None and found.text:
+                            return found.text.strip()
+                    except:
+                        pass
+                    return None
+
+                # Extract validity period times
+                start_time = get_text(incident, './/com:StartTime')
+                end_time = get_text(incident, './/com:EndTime')
+                last_updated = get_text(incident, './/com:LastChangedDate')
+
+                # Extract incident details
+                incident_number = get_text(incident, 'IncidentNumber')
+                summary = get_text(incident, 'Summary')
+                description = get_text(incident, 'Description')
+                priority = get_text(incident, 'IncidentPriority')
+                planned = get_text(incident, 'Planned')
+
+                # Extract operator information
+                operators = []
+                operator_elems = incident.findall('.//inc:AffectedOperator', ns)
+                if not operator_elems:
+                    operator_elems = incident.findall('.//AffectedOperator')
+                
+                for op_elem in operator_elems:
+                    op_ref = get_text(op_elem, 'OperatorRef')
+                    op_name = get_text(op_elem, 'OperatorName')
+                    if op_ref or op_name:
+                        operators.append({'ref': op_ref, 'name': op_name})
+
+                # Extract routes affected
+                routes = get_text(incident, './/inc:RoutesAffected')
+
                 normalized.append({
-                    'crs': crs,
-                    'id': pick(item, 'id', 'messageid', 'uid', 'incidentid'),
-                    'category': pick(item, 'category', 'categorycode', 'type'),
-                    'severity': pick(item, 'severity', 'priority', 'level', 'impact'),
-                    'title': pick(item, 'title', 'headline', 'summary', 'subject'),
-                    'message': pick(item, 'message', 'messagetext', 'body', 'description', 'detail'),
-                    'start_time': pick(item, 'starttime', 'start', 'validfrom', 'from'),
-                    'end_time': pick(item, 'endtime', 'end', 'validto', 'to'),
-                    'last_updated': pick(item, 'lastupdated', 'updatedat', 'updatetime', 'modified'),
-                    'source': pick(item, 'source', 'origin', 'publisher', 'provider')
+                    'id': incident_number,
+                    'category': 'planned' if planned == 'true' else 'unplanned',
+                    'severity': priority,
+                    'title': summary,
+                    'message': description,
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'last_updated': last_updated,
+                    'operators': operators,
+                    'routes_affected': routes,
+                    'is_planned': planned == 'true'
                 })
 
             return {
-                'station': crs,
                 'messages': normalized,
-                'raw': raw_data,
-                'message': f"Found {len(normalized)} station message(s) for {crs} from incidents feed"
+                'raw': resp.text,
+                'message': f"Found {len(normalized)} incident(s) from incidents feed"
             }
 
         except requests.HTTPError as http_err:
@@ -310,14 +370,14 @@ class TrainTools:
         # Fetch basic departure board
         print("\n📋 Basic Departure Board:")
         print("-" * 70)
-        board_data = self.get_departure_board('GLC', num_rows=5)
+        board_data = self.get_departure_board('GLC', num_rows=3)
         formatted_board = self.format_departures(board_data)
         print(formatted_board)
 
         # Fetch next departures with details (filtered to show trains to Edinburgh)
-        print("\n📋 Next Departures with Details (to Edinburgh):")
+        print("\n📋 Next Departures with Details:")
         print("-" * 70)
-        details_data = self.get_next_departures_with_details('GLC', filter_list=['EDB'], time_window=120)
+        details_data = self.get_next_departures_with_details('GLC', time_window=120)
         if 'error' not in details_data and details_data['trains']:
             print(f"\nStation: {details_data['station']}")
             print(f"{'STD':<8} {'ETD':<8} {'Destination':<25} {'Status':<15} {'Reason':<20}")
@@ -329,20 +389,24 @@ class TrainTools:
         else:
             print(details_data.get('message', 'Unable to fetch details'))
 
-        # Fetch station messages (disruptions) for Glasgow Central
+        # Fetch station messages (disruptions) - incidents feed (not station-specific)
         print("\n📋 Station Messages:")
         print("-" * 70)
-        messages_data = self.get_station_messages('GLC')
+        messages_data = self.get_station_messages()
         if 'error' in messages_data:
             print(messages_data['message'])
         elif not messages_data.get('messages'):
-            print(f"No station messages for {messages_data.get('station', 'GLC')}")
+            print("No incident messages available")
         else:
-            print(f"Found {len(messages_data['messages'])} message(s) for {messages_data['station']}")
-            print(f"{'ID':<10} {'Category':<10} {'Severity':<8} {'Title':<30} {'Last Updated':<20}")
-            print("-" * 100)
-            for m in messages_data['messages']:
-                print(f"{str(m.get('id',''))[:10]:<10} {str(m.get('category',''))[:10]:<10} {str(m.get('severity',''))[:8]:<8} {str(m.get('title',''))[:30]:<30} {str(m.get('last_updated',''))[:20]:<20}")
+            print(f"Found {len(messages_data['messages'])} incident message(s)")
+            print(f"{'ID':<40} {'Category':<12} {'Severity':<8} {'Title':<50}")
+            print("-" * 120)
+            for m in messages_data['messages'][:5]:  # Show first 5
+                incident_id = str(m.get('id', ''))[:38]
+                category = str(m.get('category', ''))[:10]
+                severity = str(m.get('severity', ''))[:6]
+                title = str(m.get('title', ''))
+                print(f"{incident_id:<40} {category:<12} {severity:<8} {title:<50}")
 
         print("\n" + "=" * 70)
 
@@ -354,7 +418,7 @@ def get_departure_board(station_code: str, num_rows: int = 10) -> dict:
     return _default_tools.get_departure_board(station_code, num_rows=num_rows)
 
 
-def get_next_departures_with_details(station_code: str, filter_list: Union[Iterable[str], Sequence[str], Set[str]], time_offset: int = 0, time_window: int = 120) -> dict:
+def get_next_departures_with_details(station_code: str, filter_list: Union[Iterable[str], Sequence[str], Set[str], None] = None, time_offset: int = 0, time_window: int = 120) -> dict:
     return _default_tools.get_next_departures_with_details(station_code, filter_list=filter_list, time_offset=time_offset, time_window=time_window)
 
 
@@ -362,8 +426,8 @@ def format_departures(board_data: dict) -> str:
     return _default_tools.format_departures(board_data)
 
 
-def get_station_messages(station_code: str) -> dict:
-    return _default_tools.get_station_messages(station_code)
+def get_station_messages() -> dict:
+    return _default_tools.get_station_messages()
 
 
 def main_demo():

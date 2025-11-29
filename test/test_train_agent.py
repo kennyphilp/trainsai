@@ -552,103 +552,133 @@ class TestGetStationMessages:
 
     @patch('requests.get')
     def test_get_station_messages_success_list_payload(self, mock_get):
-        # Mock a simple list payload
-        payload = [
-            {
-                'id': 'm1',
-                'category': 'INFO',
-                'severity': 'Low',
-                'title': 'Station open',
-                'message': 'The station is open as normal.',
-                'startTime': '2025-11-28T08:00:00Z',
-                'endTime': '2025-11-28T18:00:00Z',
-                'lastUpdated': '2025-11-28T07:55:00Z',
-                'source': 'RDG'
-            },
-            {
-                'id': 'm2',
-                'category': 'WARNING',
-                'severity': 'Medium',
-                'title': 'Lift out of order',
-                'message': 'Platform 3 lift unavailable.',
-                'startTime': '2025-11-28T09:00:00Z',
-                'endTime': None,
-                'lastUpdated': '2025-11-28T09:05:00Z',
-                'source': 'TOC'
-            }
-        ]
+        # Mock XML response from the actual API
+        xml_payload = '''<?xml version="1.0" encoding="utf-8"?>
+<Incidents xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:com="http://nationalrail.co.uk/xml/common" xmlns="http://nationalrail.co.uk/xml/incident">
+  <PtIncident>
+    <CreationTime>2025-11-28T08:00:00Z</CreationTime>
+    <ChangeHistory>
+      <com:ChangedBy>NRE CMS Editor</com:ChangedBy>
+      <com:LastChangedDate>2025-11-28T07:55:00Z</com:LastChangedDate>
+    </ChangeHistory>
+    <IncidentNumber>m1</IncidentNumber>
+    <ValidityPeriod>
+      <com:StartTime>2025-11-28T08:00:00Z</com:StartTime>
+      <com:EndTime>2025-11-28T18:00:00Z</com:EndTime>
+    </ValidityPeriod>
+    <Planned>true</Planned>
+    <Summary><![CDATA[Station open]]></Summary>
+    <Description><![CDATA[The station is open as normal.]]></Description>
+    <IncidentPriority>1</IncidentPriority>
+  </PtIncident>
+  <PtIncident>
+    <CreationTime>2025-11-28T09:00:00Z</CreationTime>
+    <ChangeHistory>
+      <com:ChangedBy>NRE CMS Editor</com:ChangedBy>
+      <com:LastChangedDate>2025-11-28T09:05:00Z</com:LastChangedDate>
+    </ChangeHistory>
+    <IncidentNumber>m2</IncidentNumber>
+    <ValidityPeriod>
+      <com:StartTime>2025-11-28T09:00:00Z</com:StartTime>
+    </ValidityPeriod>
+    <Planned>false</Planned>
+    <Summary><![CDATA[Lift out of order]]></Summary>
+    <Description><![CDATA[Platform 3 lift unavailable.]]></Description>
+    <IncidentPriority>2</IncidentPriority>
+  </PtIncident>
+</Incidents>'''
 
         mock_resp = MagicMock()
-        mock_resp.json.return_value = payload
+        mock_resp.text = xml_payload
+        mock_resp.headers = {'Content-Type': 'application/xml'}
         mock_resp.raise_for_status.return_value = None
         mock_get.return_value = mock_resp
 
         tools = train_tools.TrainTools()
         tools.disruptions_api_key = 'test-key'
-        res = tools.get_station_messages('eus')
+        res = tools.get_station_messages()
 
         # Validate normalization
-        assert res['station'] == 'EUS'
         assert len(res['messages']) == 2
         first = res['messages'][0]
         assert first['id'] == 'm1'
-        assert first['category'] == 'INFO'
-        assert first['severity'] == 'Low'
+        assert first['category'] == 'planned'
+        assert first['severity'] == '1'
         assert first['title'] == 'Station open'
         assert first['message'] == 'The station is open as normal.'
+        assert first['is_planned'] == True
+        
+        second = res['messages'][1]
+        assert second['id'] == 'm2'
+        assert second['category'] == 'unplanned'
+        assert second['is_planned'] == False
+        
         # Ensure correct request formation
         args, kwargs = mock_get.call_args
         assert args[0].endswith('incidents.xml')
-        # Updated endpoint has no query params; still ensure API key header present
-        assert 'params' not in kwargs or kwargs['params'] is None
         assert kwargs['headers']['x-apikey'] == 'test-key'
 
     @patch('requests.get')
     def test_get_station_messages_success_dict_messages(self, mock_get):
-        # Mock a dict payload with alternative keys
-        payload = {
-            'messages': [
-                {
-                    'messageId': 'abc123',
-                    'categoryCode': 'MAINT',
-                    'level': 'High',
-                    'headline': 'Engineering work',
-                    'messageText': 'Track maintenance overnight.',
-                    'validFrom': '2025-11-29T00:00:00Z',
-                    'validTo': '2025-11-29T06:00:00Z',
-                    'updatedAt': '2025-11-28T20:00:00Z',
-                    'publisher': 'Network Rail'
-                }
-            ]
-        }
+        # Mock XML with operator and routes information
+        xml_payload = '''<?xml version="1.0" encoding="utf-8"?>
+<Incidents xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:com="http://nationalrail.co.uk/xml/common" xmlns="http://nationalrail.co.uk/xml/incident">
+  <PtIncident>
+    <CreationTime>2025-11-28T20:00:00Z</CreationTime>
+    <ChangeHistory>
+      <com:ChangedBy>NRE CMS Editor</com:ChangedBy>
+      <com:LastChangedDate>2025-11-28T20:00:00Z</com:LastChangedDate>
+    </ChangeHistory>
+    <IncidentNumber>abc123</IncidentNumber>
+    <ValidityPeriod>
+      <com:StartTime>2025-11-29T00:00:00Z</com:StartTime>
+      <com:EndTime>2025-11-29T06:00:00Z</com:EndTime>
+    </ValidityPeriod>
+    <Planned>true</Planned>
+    <Summary><![CDATA[Engineering work]]></Summary>
+    <Description><![CDATA[Track maintenance overnight.]]></Description>
+    <Affects>
+      <Operators>
+        <AffectedOperator>
+          <OperatorRef>NR</OperatorRef>
+          <OperatorName>Network Rail</OperatorName>
+        </AffectedOperator>
+      </Operators>
+      <RoutesAffected><![CDATA[<p>Between London and Manchester</p>]]></RoutesAffected>
+    </Affects>
+    <IncidentPriority>3</IncidentPriority>
+  </PtIncident>
+</Incidents>'''
 
         mock_resp = MagicMock()
-        mock_resp.json.return_value = payload
+        mock_resp.text = xml_payload
+        mock_resp.headers = {'Content-Type': 'application/xml'}
         mock_resp.raise_for_status.return_value = None
         mock_get.return_value = mock_resp
 
         tools = train_tools.TrainTools()
         tools.disruptions_api_key = 'test-key'
-        res = tools.get_station_messages('GLC')
+        res = tools.get_station_messages()
 
-        assert res['station'] == 'GLC'
         assert len(res['messages']) == 1
         m = res['messages'][0]
         assert m['id'] == 'abc123'
-        assert m['category'] == 'MAINT'
-        assert m['severity'] == 'High'
+        assert m['category'] == 'planned'
+        assert m['severity'] == '3'
         assert m['title'] == 'Engineering work'
         assert m['message'] == 'Track maintenance overnight.'
         assert m['start_time'] == '2025-11-29T00:00:00Z'
         assert m['end_time'] == '2025-11-29T06:00:00Z'
         assert m['last_updated'] == '2025-11-28T20:00:00Z'
-        assert m['source'] == 'Network Rail'
+        assert len(m['operators']) == 1
+        assert m['operators'][0]['ref'] == 'NR'
+        assert m['operators'][0]['name'] == 'Network Rail'
 
     def test_get_station_messages_missing_api_key(self):
         # Ensure missing key returns a clear error
         tools = train_tools.TrainTools()
         tools.disruptions_api_key = None
-        res = tools.get_station_messages('EUS')
+        res = tools.get_station_messages()
         assert 'error' in res and 'Missing API key' in res['error']
 
     @patch('requests.get')
@@ -660,7 +690,7 @@ class TestGetStationMessages:
 
         tools = train_tools.TrainTools()
         tools.disruptions_api_key = 'test-key'
-        res = tools.get_station_messages('EUS')
+        res = tools.get_station_messages()
 
         assert 'error' in res and 'HTTP 403' in res['error']
         assert 'Incidents feed request failed' in res['message']
@@ -671,7 +701,7 @@ class TestGetStationMessages:
 
         tools = train_tools.TrainTools()
         tools.disruptions_api_key = 'test-key'
-        res = tools.get_station_messages('EUS')
+        res = tools.get_station_messages()
 
         assert 'error' in res
         assert 'Unable to fetch station messages' in res['message']
