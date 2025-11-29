@@ -12,6 +12,7 @@ from datetime import datetime
 from openai import OpenAI, APIError, BadRequestError, RateLimitError
 from dotenv import load_dotenv
 from train_tools import TrainTools
+from timetable_parser import StationResolver
 from models import (
     DepartureBoardResponse,
     DetailedDeparturesResponse,
@@ -56,6 +57,19 @@ class ScotRailAgent:
         
         # Initialize TrainTools for live data access
         self.train_tools = TrainTools()
+        
+        # Initialize StationResolver for fuzzy station name matching
+        try:
+            msn_path = os.path.join(os.path.dirname(__file__), "timetable", "RJTTF666MSN.txt")
+            if os.path.exists(msn_path):
+                self.station_resolver = StationResolver(msn_path)
+                print(f"Station resolver initialized with {len(self.station_resolver)} stations")
+            else:
+                self.station_resolver = None
+                print(f"Warning: MSN file not found at {msn_path}. Station name resolution disabled.")
+        except Exception as e:
+            self.station_resolver = None
+            print(f"Warning: Could not initialize station resolver: {e}")
         
         # Define tools for the agent
         self.tools = [
@@ -158,6 +172,28 @@ class ScotRailAgent:
                         "required": []
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "resolve_station_name",
+                    "description": "Resolve a station name or partial name to its official 3-letter CRS code. Supports fuzzy matching for typos and partial names (e.g., 'edinburgh' → 'EDB', 'glasgow central' → 'GLC'). Use this when users provide station names instead of codes, or when you're unsure of the exact CRS code.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "station_name": {
+                                "type": "string",
+                                "description": "Station name or partial name to search for (e.g., 'edinburgh', 'glasgow central', 'inverness')"
+                            },
+                            "max_results": {
+                                "type": "integer",
+                                "description": "Maximum number of matching stations to return (default: 5)",
+                                "default": 5
+                            }
+                        },
+                        "required": ["station_name"]
+                    }
+                }
             }
         ]
         
@@ -183,6 +219,7 @@ Your personality:
 
 Tools you have access to:
 - get_current_time: Get the current date and time (use when users ask about "now", "today", "soon", etc.)
+- resolve_station_name: Convert station names to CRS codes (use when users provide station names or you're unsure of the code)
 - get_departure_board: Get basic departure information for any Scottish station
 - get_next_departures_with_details: Get detailed departure info including cancellations and delays
 - get_service_details: Get complete journey details with all stops for a specific service
@@ -199,11 +236,12 @@ Important Scottish station codes:
 - STG: Stirling
 
 When answering questions:
-1. Use the tools to get live data whenever users ask about specific trains or disruptions
-2. Always specify which station you're checking (use the CRS code)
-3. Present information clearly and add a touch of humor when appropriate
-4. If trains are delayed or cancelled, be empathetic and provide helpful alternatives when possible
-5. When showing service details, explain the complete journey to help passengers plan
+1. If a user provides a station name (not a CRS code), use resolve_station_name first to find the correct code
+2. Use the tools to get live data whenever users ask about specific trains or disruptions
+3. Always specify which station you're checking (use the CRS code)
+4. Present information clearly and add a touch of humor when appropriate
+5. If trains are delayed or cancelled, be empathetic and provide helpful alternatives when possible
+6. When showing service details, explain the complete journey to help passengers plan
 
 Example tone: "Right, let me check the departures from Edinburgh Waverley for ye... *checks live board* Och, good news! The next train to Glasgow leaves at 14:30 from Platform 12 and it's running on time. That's the fast service, so ye'll be in Glasgow Central in about 50 minutes. Mind the gap!"
 """
@@ -232,6 +270,30 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
             if tool_name == "get_current_time":
                 now = datetime.now()
                 return f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M:%S %p')} (24-hour: {now.strftime('%H:%M:%S')})"
+            
+            elif tool_name == "resolve_station_name":
+                if not self.station_resolver:
+                    return "Station name resolution is not available (timetable data not loaded)."
+                
+                station_name = tool_args["station_name"]
+                max_results = tool_args.get("max_results", 5)
+                
+                # Try to find matching stations
+                results = self.station_resolver.search(station_name, limit=max_results)
+                
+                if not results:
+                    return f"No stations found matching '{station_name}'."
+                
+                output = f"Stations matching '{station_name}':\n"
+                for station, score in results:
+                    output += f"- {station.name} (CRS: {station.crs_code}) - Match score: {score}%\n"
+                
+                # If there's a clear best match (score >= 90), highlight it
+                if results[0][1] >= 90:
+                    best = results[0][0]
+                    output += f"\nBest match: {best.name} (CRS: {best.crs_code})\n"
+                
+                return output
             
             elif tool_name == "get_departure_board":
                 result = self.train_tools.get_departure_board(
