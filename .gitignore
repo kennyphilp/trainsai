@@ -59,6 +59,7 @@ htmlcov/
 .hypothesis/
 *.cover
 .pytest_cache/
+TEST_COVERAGE_REPORT*.md
 
 # Logs
 *.log
