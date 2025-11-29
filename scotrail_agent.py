@@ -20,6 +20,7 @@ except ImportError:
     print("Warning: tiktoken not available. Token counting will use estimation.")
 from train_tools import TrainTools
 from timetable_parser import StationResolver
+from timetable_tools import TimetableTools
 from models import (
     DepartureBoardResponse,
     DetailedDeparturesResponse,
@@ -82,6 +83,15 @@ class ScotRailAgent:
         except Exception as e:
             self.station_resolver = None
             print(f"Warning: Could not initialize station resolver: {e}")
+        
+        # Initialize TimetableTools for schedule data access
+        try:
+            db_path = os.path.join(os.path.dirname(__file__), "timetable", "timetable.db")
+            self.timetable_tools = TimetableTools(db_path=db_path, msn_path=msn_path if os.path.exists(msn_path) else None)
+            print("Timetable tools initialized for schedule queries")
+        except Exception as e:
+            self.timetable_tools = None
+            print(f"Warning: Could not initialize timetable tools: {e}")
         
         # Define tools for the agent
         self.tools = [
@@ -209,6 +219,10 @@ class ScotRailAgent:
             }
         ]
         
+        # Add timetable tools if available
+        if self.timetable_tools:
+            self.tools.extend(self.timetable_tools.get_tool_schemas())
+        
         # System prompt that defines the agent's personality and role
         self.system_prompt = f"""You are a helpful and humorous AI assistant specializing in ScotRail trains in Scotland.
 
@@ -230,12 +244,26 @@ Your personality:
 - When users ask about "now" or "soon", use get_current_time to confirm the exact time
 
 Tools you have access to:
+
+REAL-TIME DATA (for immediate/current information):
 - get_current_time: Get the current date and time (use when users ask about "now", "today", "soon", etc.)
 - resolve_station_name: Convert station names to CRS codes (use when users provide station names or you're unsure of the code)
 - get_departure_board: Get basic departure information for any Scottish station
 - get_next_departures_with_details: Get detailed departure info including cancellations and delays
 - get_service_details: Get complete journey details with all stops for a specific service
 - get_station_messages: Get network-wide or station-specific incident and disruption information
+
+SCHEDULE DATA (for future planning and historical reference):
+- get_scheduled_trains: Find all scheduled trains between two stations on a specific date (use for planning future journeys)
+- find_journey_route: Plan journeys with connections between stations (use when no direct trains available)
+- compare_schedule_vs_actual: Compare scheduled times with real-time data to identify delays and platform changes
+- find_alternative_route: Find alternative routes when trains are delayed, cancelled, or full
+
+When to use which tools:
+- For "now" or "next 2 hours": Use real-time tools (get_next_departures_with_details)
+- For "tomorrow" or "next week": Use schedule tools (get_scheduled_trains)
+- For journey planning with changes: Use find_journey_route
+- When trains are disrupted: Use find_alternative_route
 
 Important Scottish station codes:
 - EDB: Edinburgh Waverley
@@ -249,11 +277,15 @@ Important Scottish station codes:
 
 When answering questions:
 1. If a user provides a station name (not a CRS code), use resolve_station_name first to find the correct code
-2. Use the tools to get live data whenever users ask about specific trains or disruptions
+2. Choose the right data source:
+   - For immediate/current info ("now", "next", within 2 hours): Use real-time tools
+   - For future planning (tomorrow, next week): Use schedule tools (get_scheduled_trains)
+   - For complex journeys with changes: Use find_journey_route
 3. Always specify which station you're checking (use the CRS code)
 4. Present information clearly and add a touch of humor when appropriate
-5. If trains are delayed or cancelled, be empathetic and provide helpful alternatives when possible
+5. If trains are delayed or cancelled, be empathetic and use find_alternative_route to suggest alternatives
 6. When showing service details, explain the complete journey to help passengers plan
+7. If comparing scheduled vs actual times, use compare_schedule_vs_actual to highlight delays
 
 Example tone: "Right, let me check the departures from Edinburgh Waverley for ye... *checks live board* Och, good news! The next train to Glasgow leaves at 14:30 from Platform 12 and it's running on time. That's the fast service, so ye'll be in Glasgow Central in about 50 minutes. Mind the gap!"
 """
@@ -510,6 +542,74 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                     return output
                 else:
                     return f"Error: {result.message}"
+            
+            # Timetable tools (schedule data)
+            elif tool_name == "get_scheduled_trains" and self.timetable_tools:
+                result = self.timetable_tools.get_scheduled_trains(**tool_args)
+                if result.get('success'):
+                    trains = result.get('trains', [])
+                    if not trains:
+                        return f"No scheduled trains found from {result['from']} to {result['to']} on {result['date']}."
+                    output = f"Scheduled trains from {result['from']} to {result['to']} on {result['date']} ({result['count']} found):\n"
+                    for train in trains:
+                        output += f"- Departs {train['departure_time']}, arrives {train['arrival_time']} ({train['duration_minutes']} mins)\n"
+                        output += f"  Train: {train['headcode']}, Operator: {train['operator']}, Platform {train.get('departure_platform', 'TBA')}\n"
+                    return output
+                else:
+                    return f"Error: {result.get('error', 'Unknown error')}"
+            
+            elif tool_name == "find_journey_route" and self.timetable_tools:
+                result = self.timetable_tools.find_journey_route(**tool_args)
+                if result.get('success'):
+                    routes = result.get('routes', [])
+                    if not routes:
+                        return f"No routes found from {result['from']} to {result['to']} on {result['date']}."
+                    output = f"Journey options from {result['from']} to {result['to']} on {result['date']} ({result['count']} found):\n\n"
+                    for idx, route in enumerate(routes, 1):
+                        output += f"Route {idx} ({route['type']}, {route['total_duration']} mins, {route['changes']} changes):\n"
+                        for leg_idx, leg in enumerate(route['legs'], 1):
+                            output += f"  Leg {leg_idx}: {leg['from']} → {leg['to']}\n"
+                            output += f"  Train {leg['headcode']} ({leg['operator']}), departs {leg['departure']}, arrives {leg['arrival']}\n"
+                        output += "\n"
+                    return output
+                else:
+                    return f"Error: {result.get('error', 'Unknown error')}"
+            
+            elif tool_name == "compare_schedule_vs_actual" and self.timetable_tools:
+                result = self.timetable_tools.compare_schedule_vs_actual(**tool_args)
+                if result.get('success'):
+                    comparison = result.get('comparison', [])
+                    output = f"Schedule vs Actual for train {result['train_uid']} on {result['date']}:\n"
+                    for stop in comparison:
+                        output += f"\n{stop['station']}:\n"
+                        output += f"  Scheduled: arr {stop.get('scheduled_arrival', 'N/A')}, dep {stop.get('scheduled_departure', 'N/A')}\n"
+                        if stop.get('actual_arrival') or stop.get('actual_departure'):
+                            output += f"  Actual: arr {stop.get('actual_arrival', 'N/A')}, dep {stop.get('actual_departure', 'N/A')}\n"
+                        if stop.get('delay_minutes', 0) > 0:
+                            output += f"  DELAYED: {stop['delay_minutes']} minutes\n"
+                        if stop.get('cancelled'):
+                            output += f"  STATUS: CANCELLED\n"
+                        if stop.get('platform_changed'):
+                            output += f"  Platform changed: {stop['scheduled_platform']} → {stop['actual_platform']}\n"
+                    return output
+                else:
+                    return f"Error: {result.get('error', 'Unknown error')}"
+            
+            elif tool_name == "find_alternative_route" and self.timetable_tools:
+                result = self.timetable_tools.find_alternative_route(**tool_args)
+                if result.get('success'):
+                    alternatives = result.get('alternatives', [])
+                    if not alternatives:
+                        return f"No alternative routes found for the disrupted train {result['original_train']}."
+                    output = f"Alternative routes (reason: {result['reason']}, {result['count']} found):\n\n"
+                    for idx, alt in enumerate(alternatives, 1):
+                        output += f"Alternative {idx}:\n"
+                        output += f"  Train {alt['headcode']} ({alt['operator']})\n"
+                        output += f"  Departs {alt['departure_time']}, arrives {alt['arrival_time']} ({alt['duration_minutes']} mins)\n"
+                        output += f"  Platform {alt.get('departure_platform', 'TBA')}\n\n"
+                    return output
+                else:
+                    return f"Error: {result.get('error', 'Unknown error')}"
             
             else:
                 return f"Unknown tool: {tool_name}"

@@ -36,7 +36,7 @@ class TestScotRailAgentInitialization:
         assert agent.model == "gpt-4o-mini"
         assert len(agent.conversation_history) == 1  # System prompt
         assert agent.conversation_history[0]['role'] == 'system'
-        assert len(agent.tools) == 6  # 6 tools registered (added resolve_station_name)
+        assert len(agent.tools) == 10  # 10 tools registered (6 LDBWS + 4 timetable)
     
     @patch.dict('os.environ', {}, clear=True)
     def test_agent_raises_error_without_api_key(self):

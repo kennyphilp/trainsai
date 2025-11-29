@@ -315,3 +315,278 @@ class StationResolver:
     
     def __repr__(self) -> str:
         return f"StationResolver({len(self.stations)} stations loaded)"
+
+
+class CIFScheduleParser:
+    """
+    Parser for CIF (Common Interface Format) schedule files (ZTR format).
+    
+    Parses fixed-width records containing:
+    - BS: Basic Schedule (train service header)
+    - BX: Basic Schedule Extra Details  
+    - LO: Location Origin (starting point)
+    - LI: Location Intermediate (stops along route)
+    - LT: Location Terminating (end point)
+    - LN: Location passing (non-stop)
+    
+    CIF format specification: Rail Delivery Group RDG-TSI-CIF-0055
+    """
+    
+    def __init__(self):
+        """Initialize the CIF schedule parser."""
+        self.current_schedule = None
+        self.current_locations = []
+        
+    def parse_file(self, file_path: str) -> List[Tuple[Dict, List[Dict]]]:
+        """
+        Parse a complete CIF schedule file.
+        
+        Args:
+            file_path: Path to .cif or .mca file
+            
+        Returns:
+            List of (schedule_dict, locations_list) tuples
+        """
+        schedules = []
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                record_type = line[0:2]
+                
+                if record_type == 'BS':
+                    # Save previous schedule if exists
+                    if self.current_schedule:
+                        schedules.append((self.current_schedule, self.current_locations))
+                    
+                    # Start new schedule
+                    self.current_schedule = self._parse_bs_record(line)
+                    self.current_locations = []
+                    
+                elif record_type == 'BX':
+                    # Additional schedule details
+                    if self.current_schedule:
+                        self.current_schedule.update(self._parse_bx_record(line))
+                        
+                elif record_type in ('LO', 'LI', 'LT', 'LN'):
+                    # Location records
+                    if self.current_schedule:
+                        location = self._parse_location_record(line, record_type)
+                        self.current_locations.append(location)
+        
+        # Don't forget the last schedule
+        if self.current_schedule:
+            schedules.append((self.current_schedule, self.current_locations))
+            
+        return schedules
+    
+    def _parse_bs_record(self, line: str) -> Dict:
+        """
+        Parse BS (Basic Schedule) record.
+        
+        Format (positions are 0-indexed):
+        0-1: 'BS' 
+        2-7: Transaction type (NRCDOP)
+        7-13: Train UID
+        13-19: Date runs from (YYMMDD)
+        19-25: Date runs to (YYMMDD)
+        25-32: Days run (7 bits: 1=runs, 0=doesn't)
+        ...
+        """
+        return {
+            'train_uid': line[3:9].strip(),
+            'start_date': self._parse_date(line[9:15]),
+            'end_date': self._parse_date(line[15:21]),
+            'days_run': line[21:28],  # 7-char string
+            'bank_holiday_running': line[28:29],
+            'train_status': line[29:30],  # P=passenger, F=freight, etc.
+            'train_category': line[30:32].strip(),
+            'train_identity': line[32:36].strip(),  # Headcode
+            'headcode': line[32:36].strip(),
+            'service_code': line[41:49].strip(),
+            'portion_id': line[49:50],
+            'power_type': line[50:53].strip(),
+            'timing_load': line[53:57].strip(),
+            'speed': self._parse_int(line[57:60]),
+            'operating_chars': line[60:66].strip(),
+            'train_class': line[66:67],  # B=both, S=standard
+            'sleepers': line[67:68],  # B=berths, S=seats
+            'reservations': line[68:69],  # A=compulsory, R=recommended
+            'catering': line[69:73].strip(),
+            'service_branding': line[73:77].strip(),
+            'stp_indicator': line[79:80],  # C=cancelled, N=new, O=overlay, P=permanent
+            'operator_code': line[11:13] if len(line) > 13 else ''
+        }
+    
+    def _parse_bx_record(self, line: str) -> Dict:
+        """
+        Parse BX (Basic Schedule Extra Details) record.
+        
+        Additional attributes like UIC code, ATOC code, ATS code.
+        """
+        return {
+            'uic_code': line[6:11].strip(),
+            'atoc_code': line[11:13].strip(),
+            'applicable_timetable': line[13:14]
+        }
+    
+    def _parse_location_record(self, line: str, record_type: str) -> Dict:
+        """
+        Parse location record (LO/LI/LT/LN).
+        
+        Args:
+            line: Record line
+            record_type: 'LO', 'LI', 'LT', or 'LN'
+            
+        Returns:
+            Dictionary with location details
+        """
+        location = {
+            'type': record_type,
+            'tiploc': line[2:9].strip(),
+            'tiploc_suffix': line[9:10].strip(),
+            'scheduled_arrival': self._parse_time(line[10:15]) if record_type in ('LI', 'LT') else None,
+            'scheduled_departure': self._parse_time(line[15:20]) if record_type in ('LO', 'LI') else None,
+            'scheduled_pass': self._parse_time(line[20:25]) if record_type == 'LN' else None,
+            'public_arrival': self._parse_time(line[25:29]) if record_type in ('LI', 'LT') else None,
+            'public_departure': self._parse_time(line[29:33]) if record_type in ('LO', 'LI') else None,
+            'platform': line[33:36].strip(),
+            'line': line[36:39].strip(),
+            'path': line[39:42].strip(),
+            'activity': line[42:54].strip(),
+            'engineering_allowance': line[54:56].strip(),
+            'pathing_allowance': line[56:58].strip(),
+            'performance_allowance': line[58:60].strip()
+        }
+        
+        return location
+    
+    def _parse_date(self, date_str: str) -> Optional[str]:
+        """
+        Parse CIF date format (YYMMDD) to ISO format (YYYY-MM-DD).
+        
+        Args:
+            date_str: Date in YYMMDD format
+            
+        Returns:
+            ISO format date string or None
+        """
+        if not date_str or date_str.strip() == '':
+            return None
+            
+        try:
+            year = int(date_str[0:2])
+            month = int(date_str[2:4])
+            day = int(date_str[4:6])
+            
+            # Handle Y2K: 00-49 = 2000-2049, 50-99 = 1950-1999
+            if year < 50:
+                year += 2000
+            else:
+                year += 1900
+                
+            return f"{year:04d}-{month:02d}-{day:02d}"
+        except (ValueError, IndexError):
+            return None
+    
+    def _parse_time(self, time_str: str) -> Optional[str]:
+        """
+        Parse CIF time format (HHMM or HHMMh) to HH:MM format.
+        
+        The 'h' suffix indicates half-minute (30 seconds).
+        
+        Args:
+            time_str: Time in HHMM or HHMMh format
+            
+        Returns:
+            Time in HH:MM format or None
+        """
+        if not time_str or time_str.strip() == '':
+            return None
+            
+        time_str = time_str.strip()
+        
+        try:
+            if time_str.endswith('H') or time_str.endswith('h'):
+                # Half-minute time (we'll ignore the 30 seconds)
+                hours = int(time_str[0:2])
+                minutes = int(time_str[2:4])
+            else:
+                hours = int(time_str[0:2])
+                minutes = int(time_str[2:4])
+                
+            return f"{hours:02d}:{minutes:02d}"
+        except (ValueError, IndexError):
+            return None
+    
+    def _parse_int(self, int_str: str) -> Optional[int]:
+        """Parse integer from string, return None if empty or invalid."""
+        try:
+            return int(int_str.strip()) if int_str.strip() else None
+        except ValueError:
+            return None
+
+
+class ALFParser:
+    """
+    Parser for ALF (Additional Fixed Links) files.
+    
+    ALF files define connections between stations and platforms:
+    - Interchange times between platforms at same station
+    - Walking links between nearby stations
+    - Step-free access routes
+    
+    These are used for journey planning with connections.
+    """
+    
+    def parse_file(self, file_path: str) -> List[Dict]:
+        """
+        Parse an ALF file containing station connections.
+        
+        Args:
+            file_path: Path to .alf file
+            
+        Returns:
+            List of connection dictionaries
+        """
+        connections = []
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                # Skip comment lines and headers
+                if line.startswith('*') or line.startswith('/'):
+                    continue
+                    
+                # ALF records are fixed-width
+                if len(line) < 20:
+                    continue
+                    
+                connection = self._parse_alf_record(line)
+                if connection:
+                    connections.append(connection)
+                    
+        return connections
+    
+    def _parse_alf_record(self, line: str) -> Optional[Dict]:
+        """
+        Parse a single ALF record.
+        
+        Format varies but typically:
+        - Mode (I=interchange, W=walking, etc.)
+        - From TIPLOC
+        - To TIPLOC  
+        - Duration in minutes
+        - Start/end times (when connection is available)
+        """
+        try:
+            return {
+                'mode': line[0:1].strip(),
+                'from_tiploc': line[1:8].strip(),
+                'to_tiploc': line[8:15].strip(),
+                'duration': int(line[15:18].strip()) if line[15:18].strip() else 5,
+                'start_time': line[18:22].strip() if len(line) > 22 else None,
+                'end_time': line[22:26].strip() if len(line) > 26 else None,
+                'priority': int(line[26:27]) if len(line) > 27 and line[26:27].strip() else 0
+            }
+        except (ValueError, IndexError) as e:
+            # Skip malformed records
+            return None
