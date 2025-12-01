@@ -216,12 +216,128 @@ class ScotRailAgent:
                         "required": ["station_name"]
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_scheduled_trains",
+                    "description": "Find scheduled trains between two stations on a specific date. Use this to see all scheduled services, journey times, and plan ahead. Complements real-time data which only shows ~2 hours ahead.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "from_station": {
+                                "type": "string",
+                                "description": "Departure station name or CRS code (e.g., 'Edinburgh' or 'EDB')"
+                            },
+                            "to_station": {
+                                "type": "string",
+                                "description": "Arrival station name or CRS code (e.g., 'Glasgow' or 'GLC')"
+                            },
+                            "travel_date": {
+                                "type": "string",
+                                "description": "Date of travel in YYYY-MM-DD format (e.g., '2025-12-01')"
+                            },
+                            "departure_time": {
+                                "type": "string",
+                                "description": "Optional minimum departure time in HH:MM format (e.g., '09:30')"
+                            }
+                        },
+                        "required": ["from_station", "to_station", "travel_date"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_journey_route",
+                    "description": "Plan a journey with connections between stations. Finds optimal routes considering interchange times and connection possibilities.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "from_station": {
+                                "type": "string",
+                                "description": "Departure station name or CRS code"
+                            },
+                            "to_station": {
+                                "type": "string",
+                                "description": "Arrival station name or CRS code"
+                            },
+                            "travel_date": {
+                                "type": "string",
+                                "description": "Date of travel in YYYY-MM-DD format"
+                            },
+                            "departure_time": {
+                                "type": "string",
+                                "description": "Minimum departure time in HH:MM format"
+                            },
+                            "max_changes": {
+                                "type": "integer",
+                                "description": "Maximum number of connections/changes (default: 2)"
+                            }
+                        },
+                        "required": ["from_station", "to_station", "travel_date"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "compare_schedule_vs_actual",
+                    "description": "Compare scheduled train times with real-time data to identify delays, cancellations, and platform changes.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "train_uid": {
+                                "type": "string",
+                                "description": "Train unique identifier"
+                            },
+                            "travel_date": {
+                                "type": "string",
+                                "description": "Date of travel in YYYY-MM-DD format"
+                            },
+                            "real_time_data": {
+                                "type": "object",
+                                "description": "Real-time data from LDBWS API (from get_service_details)"
+                            }
+                        },
+                        "required": ["train_uid", "travel_date", "real_time_data"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_alternative_route",
+                    "description": "Find alternative routes when a train is delayed, cancelled, or full. Suggests next available trains and different connections.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "from_station": {
+                                "type": "string",
+                                "description": "Departure station name or CRS code"
+                            },
+                            "to_station": {
+                                "type": "string",
+                                "description": "Arrival station name or CRS code"
+                            },
+                            "original_train_uid": {
+                                "type": "string",
+                                "description": "UID of the disrupted train"
+                            },
+                            "travel_date": {
+                                "type": "string",
+                                "description": "Date of travel in YYYY-MM-DD format"
+                            },
+                            "reason": {
+                                "type": "string",
+                                "description": "Reason for alternative (e.g., 'delayed', 'cancelled', 'full')"
+                            }
+                        },
+                        "required": ["from_station", "to_station", "travel_date"]
+                    }
+                }
             }
         ]
-        
-        # Add timetable tools if available
-        if self.timetable_tools:
-            self.tools.extend(self.timetable_tools.get_tool_schemas())
         
         # System prompt that defines the agent's personality and role
         self.system_prompt = f"""You are a helpful and humorous AI assistant specializing in ScotRail trains in Scotland.
@@ -274,6 +390,7 @@ Important Scottish station codes:
 - DND: Dundee
 - INV: Inverness
 - STG: Stirling
+- HOZ: Howwood
 
 When answering questions:
 1. If a user provides a station name (not a CRS code), use resolve_station_name first to find the correct code

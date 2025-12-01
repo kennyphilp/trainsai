@@ -353,7 +353,7 @@ class TimetableTools:
         """
         if self.station_resolver:
             # Try CRS code first
-            station = self.station_resolver.lookup_by_crs(station_name.upper())
+            station = self.station_resolver.get_by_crs(station_name.upper())
             if station:
                 return station.tiploc
             
