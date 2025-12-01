@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScotRail Train Travel Advisor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            background: #000;
+            color: #f5f5f7;
+            overflow-x: hidden;
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 80px 20px;
+            background: linear-gradient(180deg, #000 0%, #1a1a1a 100%);
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 50% 50%, rgba(102, 126, 234, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .hero-content {
+            max-width: 980px;
+            text-align: center;
+            z-index: 1;
+            animation: fadeInUp 1s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .hero h1 {
+            font-size: clamp(48px, 8vw, 96px);
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-subtitle {
+            font-size: clamp(21px, 3vw, 28px);
+            color: #a1a1a6;
+            font-weight: 400;
+            line-height: 1.4;
+            margin-bottom: 40px;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .cta-button {
+            display: inline-block;
+            padding: 16px 48px;
+            background: #0071e3;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 980px;
+            font-size: 17px;
+            font-weight: 500;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 16px rgba(0, 113, 227, 0.3);
+        }
+
+        .cta-button:hover {
+            background: #0077ed;
+            transform: scale(1.02);
+            box-shadow: 0 8px 24px rgba(0, 113, 227, 0.4);
+        }
+
+        /* Stats Section */
+        .stats-section {
+            padding: 80px 20px;
+            background: #000;
+        }
+
+        .stats-container {
+            max-width: 980px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 40px 20px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-8px);
+            border-color: rgba(102, 126, 234, 0.5);
+            box-shadow: 0 20px 40px rgba(102, 126, 234, 0.2);
+        }
+
+        .stat-number {
+            font-size: 64px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+            margin-bottom: 12px;
+        }
+
+        .stat-label {
+            font-size: 17px;
+            color: #a1a1a6;
+            font-weight: 400;
+        }
+
+        /* Features Section */
+        .features-section {
+            padding: 120px 20px;
+            background: linear-gradient(180deg, #000 0%, #0a0a0a 100%);
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto 80px;
+        }
+
+        .section-title {
+            font-size: clamp(40px, 6vw, 64px);
+            font-weight: 600;
+            margin-bottom: 20px;
+            letter-spacing: -0.02em;
+        }
+
+        .section-description {
+            font-size: 21px;
+            color: #a1a1a6;
+            line-height: 1.5;
+        }
+
+        .features-grid {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 30px;
+        }
+
+        .feature-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 48px 32px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .feature-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(102, 126, 234, 0.4);
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            font-size: 48px;
+            margin-bottom: 24px;
+            display: block;
+        }
+
+        .feature-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #f5f5f7;
+        }
+
+        .feature-list {
+            list-style: none;
+        }
+
+        .feature-list li {
+            padding: 8px 0;
+            color: #a1a1a6;
+            font-size: 17px;
+            position: relative;
+            padding-left: 24px;
+        }
+
+        .feature-list li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: #0071e3;
+            font-weight: 600;
+        }
+
+        /* Footer */
+        .footer {
+            padding: 60px 20px 40px;
+            background: #000;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+        }
+
+        .footer-text {
+            color: #6e6e73;
+            font-size: 14px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero {
+                padding: 60px 20px;
+            }
+
+            .stats-container {
+                gap: 20px;
+            }
+
+            .features-section {
+                padding: 80px 20px;
+            }
+
+            .features-grid {
+                gap: 20px;
+            }
+
+            .feature-card {
+                padding: 32px 24px;
+            }
+        }
+
+        /* Smooth scroll */
+        html {
+            scroll-behavior: smooth;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1>ScotRail Travel Advisor</h1>
+            <p class="hero-subtitle">Your intelligent companion for Scottish rail travel. Powered by AI with real-time
+                data and comprehensive schedule planning.</p>
+            <a href="/traintraveladvisor" class="cta-button">Start Your Journey</a>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats-section">
+        <div class="stats-container">
+            <div class="stat-card">
+                <div class="stat-number">10</div>
+                <div class="stat-label">AI-Powered Tools</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">3,267</div>
+                <div class="stat-label">UK Stations</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">2</div>
+                <div class="stat-label">Data Sources</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features-section">
+        <div class="section-header">
+            <h2 class="section-title">Intelligent. Fast. Reliable.</h2>
+            <p class="section-description">Everything you need for seamless train travel planning in one beautiful
+                interface.</p>
+        </div>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <span class="feature-icon">🔴</span>
+                <h3 class="feature-title">Real-Time Data (6 Tools)</h3>
+                <ul class="feature-list">
+                    <li>Get current date/time</li>
+                    <li>Resolve station names (fuzzy matching)</li>
+                    <li>Basic departure boards</li>
+                    <li>Detailed departures with cancellations</li>
+                    <li>Full service details & calling points</li>
+                    <li>Network disruptions & station messages</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <span class="feature-icon">📅</span>
+                <h3 class="feature-title">Schedule Planning (4 Tools)</h3>
+                <ul class="feature-list">
+                    <li>Get scheduled trains between stations</li>
+                    <li>Plan journeys with connections</li>
+                    <li>Compare schedule vs actual times</li>
+                    <li>Find alternative routes when disrupted</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <span class="feature-icon">🤖</span>
+                <h3 class="feature-title">AI Assistant</h3>
+                <ul class="feature-list">
+                    <li>Natural conversation</li>
+                    <li>Context awareness</li>
+                    <li>Smart tool selection</li>
+                    <li>GPT-4o powered</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p class="footer-text">© 2025 ScotRail Train Travel Advisor. Powered by AI.</p>
+    </footer>
+</body>
+
+</html>
+<li>Detailed train service information</li>
+<li>Network disruptions and incidents</li>
+<li>Station-specific messages</li>
+<li>Intelligent station name resolution</li>
+</ul>
+</div>
+
+<div class="feature-section">
+    <h3>📅 Schedule Planning</h3>
+    <ul>
+        <li>Query scheduled trains for any date</li>
+        <li>Multi-leg journey planning</li>
+        <li>Compare schedule vs actual times</li>
+        <li>Find alternative routes when disrupted</li>
+    </ul>
+</div>
+
+<div class="feature-section">
+    <h3>🤖 AI Features</h3>
+    <ul>
+        <li>Natural language conversation</li>
+        <li>Context-aware tool selection</li>
+        <li>Polite and helpful responses</li>
+        <li>Powered by GPT-4o-mini</li>
+    </ul>
+</div>
+</div>
+
+<a href="/traintraveladvisor" class="btn">Start Chatting</a>
+</div>
+</body>
+
+</html>

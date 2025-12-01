@@ -1,4 +1,4 @@
-
+# @cookiejar=false
 GET https://api1.raildata.org.uk/1010-knowlegebase-incidents-xml-feed1_0/incidents.xml
 x-apikey:pgI8bW7euR62W7bpTGjrMNWbrV5sK9kGp5Iwexsn4xHIMrL2
-Cookie: bar=foo
+User-Agent: TrainTools/1.0

@@ -139,12 +139,12 @@ class TestGetDepartureBoard:
         # Call function
         result = train_tools.get_departure_board('EUS', num_rows=10)
         
-        # Assert
-        assert result['station'] == 'Euston'
-        assert len(result['trains']) == 1
-        assert result['trains'][0]['std'] == '14:30'
-        assert result['trains'][0]['destination'] == 'Manchester'
-        assert 'error' not in result
+        # Assert - now checking Pydantic model
+        assert isinstance(result, train_tools.DepartureBoardResponse)
+        assert result.station == 'Euston'
+        assert len(result.trains) == 1
+        assert result.trains[0].std == '14:30'
+        assert result.trains[0].destination == 'Manchester'
     
     @patch('train_tools.Client')
     def test_get_departure_board_no_trains(self, mock_client_class):
@@ -160,9 +160,9 @@ class TestGetDepartureBoard:
         
         result = train_tools.get_departure_board('RMT')
         
-        assert result['station'] == 'Remote Station'
-        assert result['trains'] == []
-        assert 'error' not in result
+        assert isinstance(result, train_tools.DepartureBoardResponse)
+        assert result.station == 'Remote Station'
+        assert result.trains == []
     
     @patch('train_tools.Client')
     def test_get_departure_board_exception_handling(self, mock_client_class):
@@ -171,9 +171,10 @@ class TestGetDepartureBoard:
         
         result = train_tools.get_departure_board('EUS')
         
-        assert 'error' in result
-        assert 'Connection timeout' in result['message']
-        assert 'Unable to fetch departure information' in result['message']
+        assert isinstance(result, train_tools.DepartureBoardError)
+        assert result.error == 'Connection timeout'
+        assert 'Connection timeout' in result.message
+        assert 'Unable to fetch departure information' in result.message
     
     @patch('train_tools.Client')
     def test_get_departure_board_station_code_uppercase(self, mock_client_class):
@@ -247,7 +248,8 @@ class TestGetDepartureBoard:
         
         result = train_tools.get_departure_board('EUS')
         
-        assert result['trains'][0]['destination'] == 'Unknown'
+        assert isinstance(result, train_tools.DepartureBoardResponse)
+        assert result.trains[0].destination == 'Unknown'
     
     @patch('train_tools.Client')
     def test_get_departure_board_missing_platform(self, mock_client_class):
@@ -269,7 +271,8 @@ class TestGetDepartureBoard:
         
         result = train_tools.get_departure_board('EUS')
         
-        assert result['trains'][0]['platform'] == 'TBA'
+        assert isinstance(result, train_tools.DepartureBoardResponse)
+        assert result.trains[0].platform == 'TBA'
 
 
 class TestGetNextDeparturesWithDetails:
@@ -310,14 +313,14 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('EUS', filter_list=['MAN'], time_window=120)
         
-        assert result['station'] == 'Euston'
-        assert len(result['trains']) == 1
-        assert result['trains'][0]['std'] == '14:30'
-        assert result['trains'][0]['service_id'] == 'SVC001'
-        assert result['trains'][0]['service_type'] == 'Express'
-        assert result['trains'][0]['length'] == '12'
-        assert result['trains'][0]['is_cancelled'] is False
-        assert 'error' not in result
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.station == 'Euston'
+        assert len(result.trains) == 1
+        assert result.trains[0].std == '14:30'
+        assert result.trains[0].service_id == 'SVC001'
+        assert result.trains[0].service_type == 'Express'
+        assert result.trains[0].length == '12'
+        assert result.trains[0].is_cancelled is False
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_cancelled_train(self, mock_client_class):
@@ -354,8 +357,9 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('PAD', filter_list=['BRI'])
         
-        assert result['trains'][0]['is_cancelled'] is True
-        assert result['trains'][0]['cancel_reason'] == 'Crew unavailable'
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.trains[0].is_cancelled is True
+        assert result.trains[0].cancel_reason == 'Crew unavailable'
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_delayed_train(self, mock_client_class):
@@ -392,8 +396,9 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('VIC', filter_list=['BTN'])
         
-        assert result['trains'][0]['delay_reason'] == 'Track works'
-        assert result['trains'][0]['etd'] == '16:05'
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.trains[0].delay_reason == 'Track works'
+        assert result.trains[0].etd == '16:05'
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_no_trains(self, mock_client_class):
@@ -409,9 +414,9 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('RMT', filter_list=['STP'])
         
-        assert result['station'] == 'Remote Station'
-        assert result['trains'] == []
-        assert 'error' not in result
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.station == 'Remote Station'
+        assert result.trains == []
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_exception_handling(self, mock_client_class):
@@ -420,9 +425,9 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('EUS', filter_list=['MAN'])
         
-        assert 'error' in result
-        assert 'API unavailable' in result['message']
-        assert 'Unable to fetch next departures with details' in result['message']
+        assert isinstance(result, train_tools.DetailedDeparturesError)
+        assert 'API unavailable' in result.message
+        assert 'Unable to fetch next departures with details' in result.message
     
     @patch('train_tools.Client')
     def test_get_next_departures_with_details_station_code_uppercase(self, mock_client_class):
@@ -485,10 +490,11 @@ class TestGetNextDeparturesWithDetails:
         
         result = train_tools.get_next_departures_with_details('EUS', filter_list=['MAN'])
         
-        assert result['trains'][0]['service_id'] == 'N/A'
-        assert result['trains'][0]['service_type'] == 'Unknown'
-        assert result['trains'][0]['length'] == 'Unknown'
-        assert result['trains'][0]['is_cancelled'] is False
+        assert isinstance(result, train_tools.DetailedDeparturesResponse)
+        assert result.trains[0].service_id == 'N/A'
+        assert result.trains[0].service_type == 'Unknown'
+        assert result.trains[0].length == 'Unknown'
+        assert result.trains[0].is_cancelled is False
 
 
 
@@ -598,20 +604,21 @@ class TestGetStationMessages:
         tools.disruptions_api_key = 'test-key'
         res = tools.get_station_messages()
 
-        # Validate normalization
-        assert len(res['messages']) == 2
-        first = res['messages'][0]
-        assert first['id'] == 'm1'
-        assert first['category'] == 'planned'
-        assert first['severity'] == '1'
-        assert first['title'] == 'Station open'
-        assert first['message'] == 'The station is open as normal.'
-        assert first['is_planned'] == True
+        # Validate response is Pydantic model
+        assert isinstance(res, train_tools.StationMessagesResponse)
+        assert len(res.messages) == 2
+        first = res.messages[0]
+        assert first.id == 'm1'
+        assert first.category == 'planned'
+        assert first.severity == '1'
+        assert first.title == 'Station open'
+        assert first.message == 'The station is open as normal.'
+        assert first.is_planned == True
         
-        second = res['messages'][1]
-        assert second['id'] == 'm2'
-        assert second['category'] == 'unplanned'
-        assert second['is_planned'] == False
+        second = res.messages[1]
+        assert second.id == 'm2'
+        assert second.category == 'unplanned'
+        assert second.is_planned == False
         
         # Ensure correct request formation
         args, kwargs = mock_get.call_args
@@ -660,26 +667,28 @@ class TestGetStationMessages:
         tools.disruptions_api_key = 'test-key'
         res = tools.get_station_messages()
 
-        assert len(res['messages']) == 1
-        m = res['messages'][0]
-        assert m['id'] == 'abc123'
-        assert m['category'] == 'planned'
-        assert m['severity'] == '3'
-        assert m['title'] == 'Engineering work'
-        assert m['message'] == 'Track maintenance overnight.'
-        assert m['start_time'] == '2025-11-29T00:00:00Z'
-        assert m['end_time'] == '2025-11-29T06:00:00Z'
-        assert m['last_updated'] == '2025-11-28T20:00:00Z'
-        assert len(m['operators']) == 1
-        assert m['operators'][0]['ref'] == 'NR'
-        assert m['operators'][0]['name'] == 'Network Rail'
+        assert isinstance(res, train_tools.StationMessagesResponse)
+        assert len(res.messages) == 1
+        m = res.messages[0]
+        assert m.id == 'abc123'
+        assert m.category == 'planned'
+        assert m.severity == '3'
+        assert m.title == 'Engineering work'
+        assert m.message == 'Track maintenance overnight.'
+        assert m.start_time == '2025-11-29T00:00:00Z'
+        assert m.end_time == '2025-11-29T06:00:00Z'
+        assert m.last_updated == '2025-11-28T20:00:00Z'
+        assert len(m.operators) == 1
+        assert m.operators[0].ref == 'NR'
+        assert m.operators[0].name == 'Network Rail'
 
     def test_get_station_messages_missing_api_key(self):
         # Ensure missing key returns a clear error
         tools = train_tools.TrainTools()
         tools.disruptions_api_key = None
         res = tools.get_station_messages()
-        assert 'error' in res and 'Missing API key' in res['error']
+        assert isinstance(res, train_tools.StationMessagesError)
+        assert 'Missing API key' in res.error
 
     @patch('requests.get')
     def test_get_station_messages_http_error(self, mock_get):
@@ -692,8 +701,9 @@ class TestGetStationMessages:
         tools.disruptions_api_key = 'test-key'
         res = tools.get_station_messages()
 
-        assert 'error' in res and 'HTTP 403' in res['error']
-        assert 'Incidents feed request failed' in res['message']
+        assert isinstance(res, train_tools.StationMessagesError)
+        assert 'HTTP 403' in res.error
+        assert 'Incidents feed request failed' in res.message
 
     @patch('requests.get')
     def test_get_station_messages_timeout(self, mock_get):
@@ -703,5 +713,6 @@ class TestGetStationMessages:
         tools.disruptions_api_key = 'test-key'
         res = tools.get_station_messages()
 
-        assert 'error' in res
-        assert 'Unable to fetch station messages' in res['message']
+        assert isinstance(res, train_tools.StationMessagesError)
+        assert 'request timed out' in res.error
+        assert 'Unable to fetch station messages' in res.message

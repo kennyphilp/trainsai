@@ -59,6 +59,7 @@ htmlcov/
 .hypothesis/
 *.cover
 .pytest_cache/
+TEST_COVERAGE_REPORT*.md
 
 # Logs
 *.log
@@ -72,3 +73,12 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+logs/
+
+# Timetable data files (too large for git)
+timetable/*.txt
+
+# Test databases and coverage
+*.db
+coverage.json
+*.code-workspace
