@@ -547,10 +547,9 @@
                 headerRow.appendChild(th);
             });
             thead.appendChild(headerRow);
-            table.appendChild(thead);
-            
+            table.appendChil
             // Body
-            const tbody = document.createElement('tbody');
+            const tbody = document.crealement('tbody');
             timetable.trains.forEach(train => {
                 const row = document.createElement('tr');
                 if (train.is_cancelled) {
