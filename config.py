@@ -204,41 +204,32 @@ class AppConfig(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "ignore"  # Ignore extra environment variables
-        # Map environment variables to field names
-        fields = {
-            'flask_secret_key': {'env': 'FLASK_SECRET_KEY'},
-            'flask_debug': {'env': 'FLASK_DEBUG'},
-            'flask_host': {'env': 'FLASK_HOST'},
-            'flask_port': {'env': 'FLASK_PORT'},
-            'testing': {'env': 'TESTING'},
-            'rate_limit_enabled': {'env': 'RATE_LIMIT_ENABLED'},
-            'rate_limit_chat': {'env': 'RATE_LIMIT_CHAT'},
-            'rate_limit_health': {'env': 'RATE_LIMIT_HEALTH'},
-            'rate_limit_default': {'env': 'RATE_LIMIT_DEFAULT'},
-            'cors_enabled': {'env': 'CORS_ENABLED'},
-            'cors_origins': {'env': 'CORS_ORIGINS'},
-            'https_enabled': {'env': 'HTTPS_ENABLED'},
-            'max_message_length': {'env': 'MAX_MESSAGE_LENGTH'},
-            'min_message_length': {'env': 'MIN_MESSAGE_LENGTH'},
-            'max_sessions': {'env': 'MAX_SESSIONS'},
-            'session_ttl_hours': {'env': 'SESSION_TTL_HOURS'},
-            'openai_api_key': {'env': 'OPENAI_API_KEY'},
-            'openai_model': {'env': 'OPENAI_MODEL'},
-            'max_conversation_history': {'env': 'MAX_CONVERSATION_HISTORY'},
-            'max_tokens_per_response': {'env': 'MAX_TOKENS_PER_RESPONSE'},
-            'max_context_tokens': {'env': 'MAX_CONTEXT_TOKENS'},
-            'safety_margin_tokens': {'env': 'SAFETY_MARGIN_TOKENS'},
-            'ldb_token': {'env': 'LDB_TOKEN'},
-            'ldb_wsdl': {'env': 'LDB_WSDL'},
-            'disruptions_api_key': {'env': ['DISRUPTIONS_API_KEY', 'RDG_API_KEY']},
-            'service_details_api_key': {'env': 'SERVICE_DETAILS_API_KEY'},
-            'timetable_db_path': {'env': 'TIMETABLE_DB_PATH'},
-            'timetable_msn_path': {'env': 'TIMETABLE_MSN_PATH'},
-            'log_level': {'env': 'LOG_LEVEL'},
-            'log_file': {'env': 'LOG_FILE'},
-            'log_max_bytes': {'env': 'LOG_MAX_BYTES'},
-            'log_backup_count': {'env': 'LOG_BACKUP_COUNT'},
-        }
+
+
+class TrainMovementsConfig:
+    """Configuration for Darwin Push Port train movements feed."""
+    
+    # Darwin Push Port connection details
+    host: str = "darwin-dist-44ae45.nationalrail.co.uk"
+    port: int = 61613
+    username: str = "DARWINc7af8eb3-ad92-4869-8682-af701f2ce953"
+    password: str = "022d5ca4-c7b3-4190-a64e-a679c211f3eb"
+    queue: str = "/topic/darwin.pushport-v16"
+    
+    # STOMP heartbeat configuration (milliseconds)
+    heartbeat_send_interval: int = 15000
+    heartbeat_receive_interval: int = 15000
+    
+    # Reconnection configuration
+    reconnect_delay: int = 5  # Initial delay in seconds
+    reconnect_max_delay: int = 300  # Maximum delay in seconds
+    
+    # Scottish train filtering
+    scottish_toc_codes: List[str] = ["SR"]  # ScotRail TOC code
+    scottish_crs_codes: List[str] = [
+        "EDB", "GLC", "ABD", "INV", "DND", "PER", "STG",
+        "AYR", "KDY", "MBR", "FAL", "DUM", "HYM", "TWE"
+    ]
 
 
 # Global configuration instance
@@ -255,3 +246,8 @@ def reload_config() -> AppConfig:
     global config
     config = AppConfig()
     return config
+
+
+def get_train_movements_config() -> TrainMovementsConfig:
+    """Get train movements configuration instance."""
+    return TrainMovementsConfig()

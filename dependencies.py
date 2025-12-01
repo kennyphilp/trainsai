@@ -16,10 +16,12 @@ import logging
 from typing import Optional
 from openai import OpenAI
 
-from config import get_config
+from config import get_config, get_train_movements_config
 from train_tools import TrainTools
 from timetable_parser import StationResolver
 from timetable_tools import TimetableTools
+from cancellations_service import CancellationsService
+from train_movements_client import TrainMovementsClient
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,8 @@ class ServiceContainer:
         self._timetable_tools = None
         self._openai_client = None
         self._test_agent = None  # For test mocking
+        self._cancellations_service = None
+        self._train_movements_client = None
         
     def get_config(self):
         """Get the application configuration (singleton)."""
@@ -160,18 +164,53 @@ class ServiceContainer:
         """Clear the test agent override."""
         self._test_agent = None
     
+    def get_cancellations_service(self) -> CancellationsService:
+        """Get the cancellations service (singleton)."""
+        if self._cancellations_service is None:
+            self._cancellations_service = CancellationsService(max_stored=50)
+            logger.info("CancellationsService initialized (max_stored=50)")
+        return self._cancellations_service
+    
+    def get_train_movements_client(self) -> TrainMovementsClient:
+        """Get the train movements client (singleton).
+        
+        The client automatically starts in a background thread and begins
+        receiving real-time train cancellation data from Darwin Push Port.
+        """
+        if self._train_movements_client is None:
+            config = get_train_movements_config()
+            cancellations_service = self.get_cancellations_service()
+            
+            # Callback for when cancellations are detected
+            def on_cancellation(cancellation_data):
+                cancellations_service.add_cancellation(cancellation_data)
+            
+            self._train_movements_client = TrainMovementsClient(config, on_cancellation)
+            self._train_movements_client.start()
+            logger.info("TrainMovementsClient initialized and started")
+        return self._train_movements_client
+    
     def reset(self):
         """
         Reset all cached instances. Useful for testing.
         
         This forces recreation of all services on next access.
         """
+        # Stop train movements client if running
+        if self._train_movements_client is not None:
+            try:
+                self._train_movements_client.stop()
+            except Exception as e:
+                logger.error(f"Error stopping train movements client: {e}")
+        
         self._config = None
         self._train_tools = None
         self._station_resolver = None
         self._timetable_tools = None
         self._openai_client = None
         self._test_agent = None
+        self._cancellations_service = None
+        self._train_movements_client = None
         logger.info("Service container reset")
 
 
