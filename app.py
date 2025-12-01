@@ -161,7 +161,7 @@ def get_or_create_agent(session_id):
             session_metadata[session_id] = datetime.now()
             return agents[session_id], None
         
-        # Create new agent - use DI container if in production, direct instantiation in tests
+        # Create new agent - use DI container for both production and testing
         try:
             if len(agents) >= config.max_sessions:
                 # Remove oldest session (LRU eviction)
@@ -169,13 +169,9 @@ def get_or_create_agent(session_id):
                 session_metadata.pop(oldest_id, None)
                 logger.info(f"LRU eviction: removed session {oldest_id[:8]}... (total sessions: {len(agents)})")
             
-            # In testing mode, allow direct instantiation for easier mocking
-            if config.testing:
-                agents[session_id] = ScotRailAgent()
-            else:
-                # Use DI container to create agent with injected dependencies
-                container = get_container()
-                agents[session_id] = container.create_agent(ScotRailAgent)
+            # Always use DI container - this allows test mocks to be injected
+            container = get_container()
+            agents[session_id] = container.create_agent(ScotRailAgent)
             
             session_metadata[session_id] = datetime.now()
             logger.info(f"Created new agent for session {session_id[:8]}... (total sessions: {len(agents)})")

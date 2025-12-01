@@ -144,23 +144,22 @@ class TestAPIEndpoints:
     """Test API endpoints."""
     
     @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
-    def test_chat_endpoint_success(self, client, mock_agent):
+    def test_chat_endpoint_success(self, client, mock_agent_in_container):
         """Test successful chat API call."""
-        with patch('app.ScotRailAgent', return_value=mock_agent):
-            with client.session_transaction() as sess:
-                sess['session_id'] = 'test-session-123'
-            
-            response = client.post('/api/chat', json={
-                'message': 'What time is it?'
-            })
-            
-            assert response.status_code == 200
-            data = response.get_json()
-            assert data['success'] == True
-            assert data['response'] == "Test response from agent"
-            
-            # Verify agent was called
-            mock_agent.chat.assert_called_once_with('What time is it?')
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat', json={
+            'message': 'What time is it?'
+        })
+        
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] == True
+        assert data['response'] == "Test response from agent"
+        
+        # Verify agent was called
+        mock_agent_in_container.chat.assert_called_once_with('What time is it?')
     
     def test_chat_endpoint_missing_message(self, client):
         """Test chat API without message field."""
@@ -516,30 +515,28 @@ class TestInputValidation:
         assert 'error' in data
         assert 'string' in data['error'].lower()
     
-    def test_chat_handles_unicode(self, client, mock_agent):
+    def test_chat_handles_unicode(self, client, mock_agent_in_container):
         """Test chat API handles valid unicode characters."""
-        with patch('app.ScotRailAgent', return_value=mock_agent):
-            with client.session_transaction() as sess:
-                sess['session_id'] = 'test-session-123'
-            
-            response = client.post('/api/chat', json={
-                'message': 'Hello 你好 مرحبا 🚂'
-            })
-            
-            assert response.status_code == 200
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat', json={
+            'message': 'Hello 你好 مرحبا 🚂'
+        })
+        
+        assert response.status_code == 200
     
-    def test_chat_handles_special_characters_safely(self, client, mock_agent):
+    def test_chat_handles_special_characters_safely(self, client, mock_agent_in_container):
         """Test chat API handles safe special characters."""
-        with patch('app.ScotRailAgent', return_value=mock_agent):
-            with client.session_transaction() as sess:
-                sess['session_id'] = 'test-session-123'
-            
-            response = client.post('/api/chat', json={
-                'message': 'When is the next train? (Edinburgh -> Glasgow)'
-            })
-            
-            # Accept either 200 (success) or 429 (rate limited from suite accumulation)
-            assert response.status_code in [200, 429], f"Expected 200 or 429, got {response.status_code}"
+        with client.session_transaction() as sess:
+            sess['session_id'] = 'test-session-123'
+        
+        response = client.post('/api/chat', json={
+            'message': 'When is the next train? (Edinburgh -> Glasgow)'
+        })
+        
+        # Accept either 200 (success) or 429 (rate limited from suite accumulation)
+        assert response.status_code in [200, 429], f"Expected 200 or 429, got {response.status_code}"
 
 
 class TestErrorHandling:
@@ -552,17 +549,16 @@ class TestErrorHandling:
         limiter.reset()
         yield
     
-    def test_chat_without_session(self, client, mock_agent):
+    def test_chat_without_session(self, client, mock_agent_in_container):
         """Test chat API creates session if missing."""
-        with patch('app.ScotRailAgent', return_value=mock_agent):
-            # Don't set session_id
-            response = client.post('/api/chat', json={
-                'message': 'Hello'
-            })
-            
-            # Accept either 200 (success) or 429 (rate limited from suite accumulation)
-            assert response.status_code in [200, 429], f"Expected 200 or 429, got {response.status_code}"
-            # Session should be created automatically
+        # Don't set session_id
+        response = client.post('/api/chat', json={
+            'message': 'Hello'
+        })
+        
+        # Accept either 200 (success) or 429 (rate limited from suite accumulation)
+        assert response.status_code in [200, 429], f"Expected 200 or 429, got {response.status_code}"
+        # Session should be created automatically
     
     def test_reset_without_agent(self, client):
         """Test reset when no agent exists yet."""
@@ -605,32 +601,31 @@ class TestConcurrency:
         yield
     
     @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
-    def test_concurrent_sessions(self, mock_agent):
+    def test_concurrent_sessions(self, mock_agent_in_container):
         """Test multiple sessions can coexist."""
         from app import agents as app_agents
         app_agents.clear()
         session_metadata.clear()
         
-        with patch('app.ScotRailAgent', return_value=mock_agent):
-            client1 = app.test_client()
-            client2 = app.test_client()
-            
-            with client1.session_transaction() as sess:
-                sess['session_id'] = 'concurrent-session-1'
-            
-            with client2.session_transaction() as sess:
-                sess['session_id'] = 'concurrent-session-2'
-            
-            # Both clients make requests
-            resp1 = client1.post('/api/chat', json={'message': 'Hello from 1'})
-            resp2 = client2.post('/api/chat', json={'message': 'Hello from 2'})
-            
-            # Accept 200 (success) or 429 (rate limited from suite accumulation)
-            assert resp1.status_code in [200, 429], f"Expected 200 or 429, got {resp1.status_code}"
-            assert resp2.status_code in [200, 429], f"Expected 200 or 429, got {resp2.status_code}"
-            # Verify sessions were handled (may not create agents if rate limited)
-            if resp1.status_code == 200 or resp2.status_code == 200:
-                assert len(app_agents) >= 0  # At least one might be created
+        client1 = app.test_client()
+        client2 = app.test_client()
+        
+        with client1.session_transaction() as sess:
+            sess['session_id'] = 'concurrent-session-1'
+        
+        with client2.session_transaction() as sess:
+            sess['session_id'] = 'concurrent-session-2'
+        
+        # Both clients make requests
+        resp1 = client1.post('/api/chat', json={'message': 'Hello from 1'})
+        resp2 = client2.post('/api/chat', json={'message': 'Hello from 2'})
+        
+        # Accept 200 (success) or 429 (rate limited from suite accumulation)
+        assert resp1.status_code in [200, 429], f"Expected 200 or 429, got {resp1.status_code}"
+        assert resp2.status_code in [200, 429], f"Expected 200 or 429, got {resp2.status_code}"
+        # Verify sessions were handled (may not create agents if rate limited)
+        if resp1.status_code == 200 or resp2.status_code == 200:
+            assert len(app_agents) >= 0  # At least one might be created
 
 
 class TestZRateLimiting:
@@ -639,26 +634,25 @@ class TestZRateLimiting:
     pytestmark = pytest.mark.order("last")
     
     @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
-    def test_rate_limit_chat_endpoint(self, rate_limited_client, mock_agent):
+    def test_rate_limit_chat_endpoint(self, rate_limited_client, mock_agent_in_container):
         """Test rate limiting on chat endpoint."""
         with rate_limited_client.session_transaction() as sess:
             sess['session_id'] = 'rate-limit-test'
         
-        with patch('app.ScotRailAgent', return_value=mock_agent):
-            # Make requests up to the limit (default: 10 per minute)
-            # We'll make 12 requests to exceed the limit
-            responses = []
-            for i in range(12):
-                response = rate_limited_client.post('/api/chat', json={'message': f'Test message {i}'})
-                responses.append(response)
-            
-            # First 10 should succeed
-            successful = [r for r in responses if r.status_code == 200]
-            rate_limited = [r for r in responses if r.status_code == 429]
-            
-            # Due to test suite accumulation, we might hit rate limit immediately
-            # Just verify rate limiting is working (some responses should be 429)
-            assert len(rate_limited) > 0 or len(successful) > 0, "Expected some responses (200 or 429)"
+        # Make requests up to the limit (default: 10 per minute)
+        # We'll make 12 requests to exceed the limit
+        responses = []
+        for i in range(12):
+            response = rate_limited_client.post('/api/chat', json={'message': f'Test message {i}'})
+            responses.append(response)
+        
+        # First 10 should succeed
+        successful = [r for r in responses if r.status_code == 200]
+        rate_limited = [r for r in responses if r.status_code == 429]
+        
+        # Due to test suite accumulation, we might hit rate limit immediately
+        # Just verify rate limiting is working (some responses should be 429)
+        assert len(rate_limited) > 0 or len(successful) > 0, "Expected some responses (200 or 429)"
     
     @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
     def test_rate_limit_health_endpoint(self, rate_limited_client):
@@ -705,7 +699,7 @@ class TestZRateLimiting:
         # This test just confirms the testing configuration is correct
     
     @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-api-key'})
-    def test_rate_limit_per_ip(self, rate_limited_client, mock_agent):
+    def test_rate_limit_per_ip(self, rate_limited_client, mock_agent_in_container):
         """Test that rate limiting is applied per IP address."""
         from app import limiter, config
         
@@ -716,16 +710,15 @@ class TestZRateLimiting:
         with rate_limited_client.session_transaction() as sess:
             sess['session_id'] = 'per-ip-test'
         
-        with patch('app.ScotRailAgent', return_value=mock_agent):
-            # Make a few requests to verify endpoint works with rate limiting enabled
-            responses = []
-            for i in range(3):
-                response = rate_limited_client.post('/api/chat', json={'message': f'Test {i}'})
-                responses.append(response)
-            
-            # Verify all requests succeeded (we're under the limit)
-            successful = [r for r in responses if r.status_code == 200]
-            assert len(successful) == 3, f"Expected all 3 successful, got {len(successful)}"
+        # Make a few requests to verify endpoint works with rate limiting enabled
+        responses = []
+        for i in range(3):
+            response = rate_limited_client.post('/api/chat', json={'message': f'Test {i}'})
+            responses.append(response)
+        
+        # Verify all requests succeeded (we're under the limit)
+        successful = [r for r in responses if r.status_code == 200]
+        assert len(successful) == 3, f"Expected all 3 successful, got {len(successful)}"
 
 
 class TestCORS:
