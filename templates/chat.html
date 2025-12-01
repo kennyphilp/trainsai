@@ -198,78 +198,6 @@
             border-bottom-left-radius: 4px;
         }
 
-        /* Train Times Table */
-        .train-table-container {
-            margin-top: 20px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(102, 126, 234, 0.3);
-            border-radius: 16px;
-            padding: 20px;
-            max-width: 85%;
-        }
-
-        .table-title {
-            font-size: 15px;
-            font-weight: 600;
-            color: #667eea;
-            margin-bottom: 16px;
-            letter-spacing: -0.01em;
-        }
-
-        .train-times-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            font-size: 14px;
-        }
-
-        .train-times-table thead {
-            background: rgba(102, 126, 234, 0.15);
-        }
-
-        .train-times-table th {
-            padding: 12px 16px;
-            text-align: left;
-            font-weight: 600;
-            color: #667eea;
-            border-bottom: 2px solid rgba(102, 126, 234, 0.3);
-            white-space: nowrap;
-        }
-
-        .train-times-table th:first-child {
-            border-top-left-radius: 8px;
-        }
-
-        .train-times-table th:last-child {
-            border-top-right-radius: 8px;
-        }
-
-        .train-times-table td {
-            padding: 12px 16px;
-            color: #f5f5f7;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-
-        .train-times-table tbody tr {
-            transition: background-color 0.2s ease;
-        }
-
-        .train-times-table tbody tr:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .train-times-table tbody tr:last-child td {
-            border-bottom: none;
-        }
-
-        .train-times-table tbody tr:last-child td:first-child {
-            border-bottom-left-radius: 8px;
-        }
-
-        .train-times-table tbody tr:last-child td:last-child {
-            border-bottom-right-radius: 8px;
-        }
-
         /* Input Area */
         .input-area {
             border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -372,6 +300,62 @@
 
         .loading:nth-child(3) {
             animation-delay: 0.4s;
+        }
+
+        /* Timetable Styles */
+        .timetable-container {
+            margin-top: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .timetable-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #667eea;
+        }
+
+        .timetable-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .timetable-table th {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+            font-weight: 600;
+            color: #a0a0a0;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .timetable-table td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .timetable-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .timetable-table tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .timetable-table tr.cancelled {
+            opacity: 0.6;
+            text-decoration: line-through;
+        }
+
+        .status-cancelled {
+            color: #ff453a;
+            font-weight: 600;
         }
 
         @keyframes pulse {
@@ -520,14 +504,14 @@
                 });
 
                 const data = await response.json();
-                console.log('Received data:', data);
-                console.log('Table data:', data.table);
 
                 // Remove loading
                 removeLoadingMessage();
 
                 if (data.success) {
-                    addMessage('agent', data.response, data.table);
+                    console.log('Received data:', data);
+                    console.log('Timetable data:', data.timetable);
+                    addMessage('agent', data.response, data.timetable);
                 } else {
                     addMessage('agent', 'Error: ' + (data.error || 'Unknown error'));
                 }
@@ -542,9 +526,73 @@
             }
         }
 
-        function addMessage(type, content, tableData = null) {
-            console.log('addMessage called with:', { type, content: content.substring(0, 100), tableData });
+        function createTimetableDisplay(timetable) {
+            const container = document.createElement('div');
+            container.className = 'timetable-container';
             
+            const title = document.createElement('div');
+            title.className = 'timetable-title';
+            title.textContent = `📍 ${timetable.station}`;
+            container.appendChild(title);
+            
+            const table = document.createElement('table');
+            table.className = 'timetable-table';
+            
+            // Header
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            ['Time', 'Destination', 'Platform', 'Status'].forEach(headerText => {
+                const th = document.createElement('th');
+                th.textContent = headerText;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            
+            // Body
+            const tbody = document.createElement('tbody');
+            timetable.trains.forEach(train => {
+                const row = document.createElement('tr');
+                if (train.is_cancelled) {
+                    row.className = 'cancelled';
+                }
+                
+                // Time
+                const timeCell = document.createElement('td');
+                timeCell.textContent = train.std;
+                row.appendChild(timeCell);
+                
+                // Destination
+                const destCell = document.createElement('td');
+                destCell.textContent = train.destination;
+                row.appendChild(destCell);
+                
+                // Platform
+                const platformCell = document.createElement('td');
+                platformCell.textContent = train.platform || 'TBA';
+                row.appendChild(platformCell);
+                
+                // Status
+                const statusCell = document.createElement('td');
+                if (train.is_cancelled) {
+                    statusCell.innerHTML = '<span class="status-cancelled">CANCELLED</span>';
+                    if (train.cancel_reason) {
+                        statusCell.innerHTML += `<br><small>${train.cancel_reason}</small>`;
+                    }
+                } else {
+                    statusCell.textContent = train.etd === 'On time' ? '✓ On time' : train.etd;
+                }
+                row.appendChild(statusCell);
+                
+                tbody.appendChild(row);
+            });
+            table.appendChild(tbody);
+            container.appendChild(table);
+            
+            return container;
+        }
+
+        function addMessage(type, content, timetable) {
             const messageBlock = document.createElement('div');
             messageBlock.className = `message-block ${type}-message`;
 
@@ -559,49 +607,14 @@
             messageBlock.appendChild(header);
             messageBlock.appendChild(messageContent);
             
-            // Add table if present
-            if (tableData && tableData.headers && tableData.rows) {
-                console.log('Creating table with data:', tableData);
-                const tableContainer = document.createElement('div');
-                tableContainer.className = 'train-table-container';
-                
-                const tableTitle = document.createElement('div');
-                tableTitle.className = 'table-title';
-                tableTitle.textContent = 'Train Times Summary';
-                tableContainer.appendChild(tableTitle);
-                
-                const table = document.createElement('table');
-                table.className = 'train-times-table';
-                
-                // Create header
-                const thead = document.createElement('thead');
-                const headerRow = document.createElement('tr');
-                tableData.headers.forEach(header => {
-                    const th = document.createElement('th');
-                    th.textContent = header;
-                    headerRow.appendChild(th);
-                });
-                thead.appendChild(headerRow);
-                table.appendChild(thead);
-                
-                // Create body
-                const tbody = document.createElement('tbody');
-                tableData.rows.forEach(row => {
-                    const tr = document.createElement('tr');
-                    row.forEach(cell => {
-                        const td = document.createElement('td');
-                        td.textContent = cell;
-                        tr.appendChild(td);
-                    });
-                    tbody.appendChild(tr);
-                });
-                table.appendChild(tbody);
-                
-                tableContainer.appendChild(table);
-                messageBlock.appendChild(tableContainer);
+            // Add timetable if available
+            if (timetable && timetable.trains && timetable.trains.length > 0) {
+                const timetableDiv = createTimetableDisplay(timetable);
+                messageBlock.appendChild(timetableDiv);
             }
-
+            
             messagesContainer.appendChild(messageBlock);
+
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 

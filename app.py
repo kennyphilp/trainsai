@@ -19,14 +19,14 @@ from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 from flask_talisman import Talisman
 from scotrail_agent import ScotRailAgent
+from config import get_config
+
+# Load configuration
+config = get_config()
 
 app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
-
-# Configure rate limiting
-RATE_LIMIT_CHAT = os.getenv('RATE_LIMIT_CHAT', '10 per minute')
-RATE_LIMIT_HEALTH = os.getenv('RATE_LIMIT_HEALTH', '60 per minute')
-RATE_LIMIT_DEFAULT = os.getenv('RATE_LIMIT_DEFAULT', '100 per hour')
+app.secret_key = config.flask_secret_key
+app.config['TESTING'] = config.testing
 
 # Initialize limiter - will be enabled/disabled based on runtime configuration
 limiter = Limiter(
@@ -39,23 +39,17 @@ limiter = Limiter(
 
 def should_limit():
     """Check if rate limiting should be applied (not in testing mode)."""
-    return not app.config.get('TESTING', False) and os.getenv('RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+    # Use app.config['TESTING'] so tests can modify it dynamically
+    return not app.config.get('TESTING', False) and config.rate_limit_enabled
 
 # Configure CORS
-CORS_ENABLED = os.getenv('CORS_ENABLED', 'true').lower() == 'true'
-CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
-
-if CORS_ENABLED:
+if config.cors_enabled:
     CORS(app,
-         origins=CORS_ORIGINS,
+         origins=config.cors_origins,
          methods=['GET', 'POST', 'OPTIONS'],
          allow_headers=['Content-Type', 'Authorization'],
          supports_credentials=True,
          max_age=600)
-
-# Input validation configuration
-MAX_MESSAGE_LENGTH = int(os.getenv('MAX_MESSAGE_LENGTH', '5000'))
-MIN_MESSAGE_LENGTH = int(os.getenv('MIN_MESSAGE_LENGTH', '1'))
 
 
 # Configure logging
@@ -70,11 +64,11 @@ console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
 
 # File handler for production (if not in debug mode)
-if not app.debug and not os.getenv('TESTING'):
+if not app.debug and not config.testing:
     # Create logs directory if it doesn't exist
-    os.makedirs('logs', exist_ok=True)
-    file_handler = RotatingFileHandler('logs/app.log', maxBytes=10485760, backupCount=10)
-    file_handler.setLevel(logging.INFO)
+    os.makedirs(os.path.dirname(config.log_file), exist_ok=True)
+    file_handler = RotatingFileHandler(config.log_file, maxBytes=config.log_max_bytes, backupCount=config.log_backup_count)
+    file_handler.setLevel(getattr(logging, config.log_level))
     file_formatter = logging.Formatter(
         '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
     )
@@ -84,11 +78,10 @@ if not app.debug and not os.getenv('TESTING'):
 
 # Configure HTTPS enforcement with Talisman (disabled in debug/testing mode)
 # Only enforces HTTPS in production environments
-HTTPS_ENABLED = os.getenv('HTTPS_ENABLED', 'true').lower() == 'true'
-testing_mode = os.getenv('TESTING', 'false').lower() == 'true' or app.config.get('TESTING', False)
-debug_mode = '--debug' in __import__('sys').argv or os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+import sys
+debug_mode = '--debug' in sys.argv or config.flask_debug
 
-if not testing_mode and not debug_mode and HTTPS_ENABLED:
+if not config.testing and not debug_mode and config.https_enabled:
     Talisman(
         app,
         force_https=True,
@@ -105,7 +98,7 @@ if not testing_mode and not debug_mode and HTTPS_ENABLED:
     )
     logger.info('HTTPS enforcement enabled with Talisman (strict transport security, CSP headers)')
 else:
-    if testing_mode:
+    if config.testing:
         logger.debug('HTTPS enforcement disabled (testing mode)')
     elif debug_mode:
         logger.info('HTTPS enforcement disabled (debug mode)')
@@ -113,49 +106,16 @@ else:
         logger.info('HTTPS enforcement disabled by configuration (HTTPS_ENABLED=false)')
 
 
-def parse_markdown_table(markdown_table: str) -> dict:
-    """Parse markdown table to structured data.
-    
-    Args:
-        markdown_table: Markdown formatted table string
-        
-    Returns:
-        Dictionary with headers and rows
-    """
-    try:
-        lines = [line.strip() for line in markdown_table.strip().split('\n') if line.strip()]
-        if len(lines) < 3:  # Need header, separator, and at least one row
-            return None
-        
-        # Parse header
-        headers = [h.strip() for h in lines[0].split('|') if h.strip()]
-        
-        # Parse data rows (skip separator line at index 1)
-        rows = []
-        for line in lines[2:]:
-            cells = [c.strip() for c in line.split('|') if c.strip()]
-            if cells and len(cells) == len(headers):
-                rows.append(cells)
-        
-        return {
-            'headers': headers,
-            'rows': rows
-        }
-    except Exception as e:
-        logger.warning(f"Failed to parse markdown table: {str(e)}")
-        return None
-
-
 def validate_message_content(message: str) -> tuple[bool, str]:
     """Validate message content and return (is_valid, error_message)."""
     if not message or not message.strip():
         return False, "Message cannot be empty"
     
-    if len(message) > MAX_MESSAGE_LENGTH:
-        return False, f"Message too long (max {MAX_MESSAGE_LENGTH} characters)"
+    if len(message) > config.max_message_length:
+        return False, f"Message too long (max {config.max_message_length} characters)"
     
-    if len(message.strip()) < MIN_MESSAGE_LENGTH:
-        return False, f"Message too short (min {MIN_MESSAGE_LENGTH} character)"
+    if len(message.strip()) < config.min_message_length:
+        return False, f"Message too short (min {config.min_message_length} character)"
     
     # Check for suspicious patterns (basic XSS prevention)
     suspicious_patterns = ['<script', 'javascript:', 'onerror=', 'onclick=', 'onload=']
@@ -167,10 +127,6 @@ def validate_message_content(message: str) -> tuple[bool, str]:
     return True, ""
 
 
-# Session management configuration
-MAX_SESSIONS = int(os.getenv('MAX_SESSIONS', '100'))
-SESSION_TTL_HOURS = int(os.getenv('SESSION_TTL_HOURS', '24'))
-
 # Store agent instances per session with LRU eviction
 agents = OrderedDict()
 session_metadata = {}  # Track last access time
@@ -178,11 +134,11 @@ agents_lock = Lock()
 
 
 def _cleanup_expired_sessions():
-    """Remove sessions older than SESSION_TTL_HOURS."""
+    """Remove sessions older than configured TTL."""
     now = datetime.now()
     expired = [
         sid for sid, last_access in session_metadata.items()
-        if now - last_access > timedelta(hours=SESSION_TTL_HOURS)
+        if now - last_access > timedelta(hours=config.session_ttl_hours)
     ]
     if expired:
         logger.info(f"Cleaning up {len(expired)} expired sessions")
@@ -206,7 +162,7 @@ def get_or_create_agent(session_id):
         
         # Create new agent
         try:
-            if len(agents) >= MAX_SESSIONS:
+            if len(agents) >= config.max_sessions:
                 # Remove oldest session (LRU eviction)
                 oldest_id, _ = agents.popitem(last=False)
                 session_metadata.pop(oldest_id, None)
@@ -246,7 +202,7 @@ def train_travel_advisor():
 
 
 @app.route('/api/chat', methods=['POST'])
-@limiter.limit(RATE_LIMIT_CHAT, exempt_when=lambda: app.config.get('TESTING', False))
+@limiter.limit(config.rate_limit_chat, exempt_when=lambda: app.config.get('TESTING', False))
 def chat():
     """Handle chat messages from the user."""
     start_time = time.time()
@@ -294,35 +250,23 @@ def chat():
         # Get response from agent
         response = agent.chat(user_message)
         
-        # Extract table data from response
-        table_data = None
-        text_response = response
-        
-        # Check if response contains a markdown table (look for table structure)
-        # Match pattern: | header | header | ... followed by |---|---| separator
-        import re
-        table_pattern = r'\|[^\n]+\|\s*\n\s*\|[-:\s|]+\|\s*\n(\s*\|[^\n]+\|\s*\n)+'
-        table_match = re.search(table_pattern, response)
-        
-        if table_match:
-            # Extract the table
-            table_markdown = table_match.group(0)
-            # Remove the table from the text response
-            text_response = response[:table_match.start()].strip() + '\n\n' + response[table_match.end():].strip()
-            text_response = text_response.strip()
-            
-            # Parse markdown table to structured data
-            table_data = parse_markdown_table(table_markdown)
-            logger.debug(f"Extracted table data: {table_data}")
-        
         duration = time.time() - start_time
-        logger.info(f"Chat response sent to session {session_id[:8]}... in {duration:.2f}s, response length: {len(response)} chars, table_data: {table_data is not None}")
+        logger.info(f"Chat response sent to session {session_id[:8]}... in {duration:.2f}s, response length: {len(response)} chars")
         
-        return jsonify({
-            'response': text_response,
-            'table': table_data,
+        # Return response with optional timetable data
+        result = {
+            'response': response,
             'success': True
-        })
+        }
+        
+        # Include timetable data if available
+        if hasattr(agent, 'last_timetable_data') and agent.last_timetable_data:
+            result['timetable'] = agent.last_timetable_data
+            logger.info(f"Including timetable data: {agent.last_timetable_data.get('type')} with {len(agent.last_timetable_data.get('trains', []))} trains")
+        else:
+            logger.info(f"No timetable data available (hasattr: {hasattr(agent, 'last_timetable_data')}, value: {getattr(agent, 'last_timetable_data', None)})")
+        
+        return jsonify(result)
     
     except Exception as e:
         duration = time.time() - start_time
@@ -334,7 +278,7 @@ def chat():
 
 
 @app.route('/api/reset', methods=['POST'])
-@limiter.limit(RATE_LIMIT_CHAT, exempt_when=lambda: app.config.get('TESTING', False))
+@limiter.limit(config.rate_limit_chat, exempt_when=lambda: app.config.get('TESTING', False))
 def reset_conversation():
     """Reset the conversation history."""
     session_id = session.get('session_id', 'unknown')
@@ -361,7 +305,7 @@ def reset_conversation():
 
 
 @app.route('/api/health', methods=['GET'])
-@limiter.limit(RATE_LIMIT_HEALTH, exempt_when=lambda: app.config.get('TESTING', False))
+@limiter.limit(config.rate_limit_health, exempt_when=lambda: app.config.get('TESTING', False))
 def health_check():
     """Health check endpoint."""
     logger.debug(f"Health check from {request.remote_addr}")
@@ -386,15 +330,18 @@ if __name__ == '__main__':
     werkzeug_logger.addFilter(TLSErrorFilter())
     
     # Parse command line arguments
-    debug_mode = '--debug' in sys.argv or os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
-    port = int(os.getenv('FLASK_PORT', '5001'))
-    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    debug_mode = '--debug' in sys.argv or config.flask_debug
     
-    logger.info(f'Starting ScotRail Train Travel Advisor on http://{host}:{port}')
+    logger.info(f'Starting ScotRail Train Travel Advisor on http://{config.flask_host}:{config.flask_port}')
     logger.info(f'Debug mode: {debug_mode}')
-    logger.info(f'Session limits: MAX_SESSIONS={MAX_SESSIONS}, SESSION_TTL_HOURS={SESSION_TTL_HOURS}')
+    logger.info(f'Session limits: MAX_SESSIONS={config.max_sessions}, SESSION_TTL_HOURS={config.session_ttl_hours}')
     
     if debug_mode:
         logger.warning('Running in DEBUG mode - not suitable for production!')
     
-    app.run(debug=debug_mode, host=host, port=port)
+    # Validate configuration
+    missing_keys = config.validate_required_keys()
+    if missing_keys:
+        logger.warning(f'Missing recommended configuration: {", ".join(missing_keys)}')
+    
+    app.run(debug=debug_mode, host=config.flask_host, port=config.flask_port)
