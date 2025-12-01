@@ -320,6 +320,16 @@ def health_check():
 if __name__ == '__main__':
     import sys
     
+    # Suppress werkzeug TLS handshake errors (happens when browsers try HTTPS on HTTP server)
+    werkzeug_logger = logging.getLogger('werkzeug')
+    
+    class TLSErrorFilter(logging.Filter):
+        def filter(self, record):
+            # Filter out "Bad request version" errors which are TLS handshakes
+            return 'Bad request version' not in record.getMessage()
+    
+    werkzeug_logger.addFilter(TLSErrorFilter())
+    
     # Parse command line arguments
     debug_mode = '--debug' in sys.argv or os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
     port = int(os.getenv('FLASK_PORT', '5001'))
