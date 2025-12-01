@@ -20,6 +20,7 @@ from flask_cors import CORS
 from flask_talisman import Talisman
 from scotrail_agent import ScotRailAgent
 from config import get_config
+from dependencies import get_container
 
 # Load configuration
 config = get_config()
@@ -160,7 +161,7 @@ def get_or_create_agent(session_id):
             session_metadata[session_id] = datetime.now()
             return agents[session_id], None
         
-        # Create new agent
+        # Create new agent - use DI container if in production, direct instantiation in tests
         try:
             if len(agents) >= config.max_sessions:
                 # Remove oldest session (LRU eviction)
@@ -168,7 +169,14 @@ def get_or_create_agent(session_id):
                 session_metadata.pop(oldest_id, None)
                 logger.info(f"LRU eviction: removed session {oldest_id[:8]}... (total sessions: {len(agents)})")
             
-            agents[session_id] = ScotRailAgent()
+            # In testing mode, allow direct instantiation for easier mocking
+            if config.testing:
+                agents[session_id] = ScotRailAgent()
+            else:
+                # Use DI container to create agent with injected dependencies
+                container = get_container()
+                agents[session_id] = container.create_agent(ScotRailAgent)
+            
             session_metadata[session_id] = datetime.now()
             logger.info(f"Created new agent for session {session_id[:8]}... (total sessions: {len(agents)})")
             return agents[session_id], None

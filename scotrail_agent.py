@@ -62,41 +62,63 @@ class ScotRailAgent:
     - get_station_messages: Network-wide incident and disruption information
     """
     
-    def __init__(self):
-        """Initialize the ScotRail agent with OpenAI client and train tools."""
-        api_key = config.openai_api_key
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in configuration")
+    def __init__(
+        self,
+        openai_client: OpenAI = None,
+        train_tools: TrainTools = None,
+        station_resolver: StationResolver = None,
+        timetable_tools: TimetableTools = None
+    ):
+        """
+        Initialize the ScotRail agent with injected dependencies.
         
-        self.client = OpenAI(api_key=api_key)
+        Args:
+            openai_client: OpenAI client instance (if None, creates default)
+            train_tools: TrainTools instance for live data (if None, creates default)
+            station_resolver: StationResolver for fuzzy matching (if None, creates default)
+            timetable_tools: TimetableTools for schedule data (if None, creates default)
+        """
+        # OpenAI client setup
+        if openai_client is None:
+            api_key = config.openai_api_key
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY not found in configuration")
+            openai_client = OpenAI(api_key=api_key)
+        
+        self.client = openai_client
         self.model = config.openai_model
         self.conversation_history = []
         self.last_timetable_data = None  # Store structured timetable data from last query
         
-        # Initialize TrainTools for live data access
-        self.train_tools = TrainTools()
+        # Injected dependencies with fallback to default initialization
+        if train_tools is None:
+            train_tools = TrainTools()
+        self.train_tools = train_tools
         
-        # Initialize StationResolver for fuzzy station name matching
-        try:
-            msn_path = os.path.join(os.path.dirname(__file__), config.timetable_msn_path)
-            if os.path.exists(msn_path):
-                self.station_resolver = StationResolver(msn_path)
-                print(f"Station resolver initialized with {len(self.station_resolver)} stations")
-            else:
-                self.station_resolver = None
-                print(f"Warning: MSN file not found at {msn_path}. Station name resolution disabled.")
-        except Exception as e:
-            self.station_resolver = None
-            print(f"Warning: Could not initialize station resolver: {e}")
+        if station_resolver is None:
+            try:
+                msn_path = os.path.join(os.path.dirname(__file__), config.timetable_msn_path)
+                if os.path.exists(msn_path):
+                    station_resolver = StationResolver(msn_path)
+                    print(f"Station resolver initialized with {len(station_resolver)} stations")
+                else:
+                    print(f"Warning: MSN file not found at {msn_path}. Station name resolution disabled.")
+            except Exception as e:
+                print(f"Warning: Could not initialize station resolver: {e}")
+        self.station_resolver = station_resolver
         
-        # Initialize TimetableTools for schedule data access
-        try:
-            db_path = os.path.join(os.path.dirname(__file__), config.timetable_db_path)
-            self.timetable_tools = TimetableTools(db_path=db_path, msn_path=msn_path if os.path.exists(msn_path) else None)
-            print("Timetable tools initialized for schedule queries")
-        except Exception as e:
-            self.timetable_tools = None
-            print(f"Warning: Could not initialize timetable tools: {e}")
+        if timetable_tools is None:
+            try:
+                db_path = os.path.join(os.path.dirname(__file__), config.timetable_db_path)
+                msn_path = os.path.join(os.path.dirname(__file__), config.timetable_msn_path)
+                timetable_tools = TimetableTools(
+                    db_path=db_path,
+                    msn_path=msn_path if os.path.exists(msn_path) else None
+                )
+                print("Timetable tools initialized for schedule queries")
+            except Exception as e:
+                print(f"Warning: Could not initialize timetable tools: {e}")
+        self.timetable_tools = timetable_tools
         
         # Define tools for the agent
         self.tools = [
