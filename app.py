@@ -113,6 +113,39 @@ else:
         logger.info('HTTPS enforcement disabled by configuration (HTTPS_ENABLED=false)')
 
 
+def parse_markdown_table(markdown_table: str) -> dict:
+    """Parse markdown table to structured data.
+    
+    Args:
+        markdown_table: Markdown formatted table string
+        
+    Returns:
+        Dictionary with headers and rows
+    """
+    try:
+        lines = [line.strip() for line in markdown_table.strip().split('\n') if line.strip()]
+        if len(lines) < 3:  # Need header, separator, and at least one row
+            return None
+        
+        # Parse header
+        headers = [h.strip() for h in lines[0].split('|') if h.strip()]
+        
+        # Parse data rows (skip separator line at index 1)
+        rows = []
+        for line in lines[2:]:
+            cells = [c.strip() for c in line.split('|') if c.strip()]
+            if cells and len(cells) == len(headers):
+                rows.append(cells)
+        
+        return {
+            'headers': headers,
+            'rows': rows
+        }
+    except Exception as e:
+        logger.warning(f"Failed to parse markdown table: {str(e)}")
+        return None
+
+
 def validate_message_content(message: str) -> tuple[bool, str]:
     """Validate message content and return (is_valid, error_message)."""
     if not message or not message.strip():
@@ -261,11 +294,33 @@ def chat():
         # Get response from agent
         response = agent.chat(user_message)
         
+        # Extract table data from response
+        table_data = None
+        text_response = response
+        
+        # Check if response contains a markdown table (look for table structure)
+        # Match pattern: | header | header | ... followed by |---|---| separator
+        import re
+        table_pattern = r'\|[^\n]+\|\s*\n\s*\|[-:\s|]+\|\s*\n(\s*\|[^\n]+\|\s*\n)+'
+        table_match = re.search(table_pattern, response)
+        
+        if table_match:
+            # Extract the table
+            table_markdown = table_match.group(0)
+            # Remove the table from the text response
+            text_response = response[:table_match.start()].strip() + '\n\n' + response[table_match.end():].strip()
+            text_response = text_response.strip()
+            
+            # Parse markdown table to structured data
+            table_data = parse_markdown_table(table_markdown)
+            logger.debug(f"Extracted table data: {table_data}")
+        
         duration = time.time() - start_time
-        logger.info(f"Chat response sent to session {session_id[:8]}... in {duration:.2f}s, response length: {len(response)} chars")
+        logger.info(f"Chat response sent to session {session_id[:8]}... in {duration:.2f}s, response length: {len(response)} chars, table_data: {table_data is not None}")
         
         return jsonify({
-            'response': response,
+            'response': text_response,
+            'table': table_data,
             'success': True
         })
     

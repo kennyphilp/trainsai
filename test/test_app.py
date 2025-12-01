@@ -126,7 +126,7 @@ class TestRoutes:
         response = client.get('/traintraveladvisor')
         assert response.status_code == 200
         assert b'ScotRail Train Travel Advisor' in response.data
-        assert b'message-input' in response.data or b'userInput' in response.data
+        assert b'message-input' in response.data or b'userMessage' in response.data
     
     def test_chat_interface_creates_session(self, client):
         """Test chat interface generates session ID."""

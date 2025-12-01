@@ -18,6 +18,29 @@ try:
 except ImportError:
     TIKTOKEN_AVAILABLE = False
     print("Warning: tiktoken not available. Token counting will use estimation.")
+
+# Enable OpenAI detailed logging in debug mode
+try:
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+    if debug_mode:
+        # Enable httpx logging to see full request/response details
+        import httpx
+        import logging as stdlib_logging
+        httpx_logger = stdlib_logging.getLogger("httpx")
+        httpx_logger.setLevel(stdlib_logging.DEBUG)
+        
+        # Add handler if not already present
+        if not httpx_logger.handlers:
+            handler = stdlib_logging.StreamHandler()
+            handler.setFormatter(stdlib_logging.Formatter(
+                '%(asctime)s - OPENAI - %(levelname)s - %(message)s'
+            ))
+            httpx_logger.addHandler(handler)
+        
+        print("✓ OpenAI request/response logging enabled for debugging")
+        print("  Note: For traces at platform.openai.com/traces, requests must include 'x-request-id' header")
+except Exception as e:
+    print(f"Note: Could not enable OpenAI debug logging: {e}")
 from train_tools import TrainTools
 from timetable_parser import StationResolver
 from timetable_tools import TimetableTools
@@ -64,7 +87,21 @@ class ScotRailAgent:
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
         
-        self.client = OpenAI(api_key=api_key)
+        # Check if debug mode is enabled for enhanced logging
+        self.debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+        
+        # Initialize OpenAI client with custom headers for request tracking
+        extra_headers = {}
+        if self.debug_mode:
+            # Add custom headers that help with tracking in OpenAI dashboard
+            extra_headers["X-Custom-Project"] = "ScotRail-TrainAI"
+            logger.info("OpenAI client initialized with debug mode and request tracking")
+        
+        self.client = OpenAI(
+            api_key=api_key,
+            default_headers=extra_headers if extra_headers else None
+        )
+        
         self.model = "gpt-4o-mini"
         self.conversation_history = []
         
@@ -357,7 +394,25 @@ Your personality:
 - Use occasional Scottish expressions naturally (but don't overdo it)
 - Be empathetic when trains are delayed or cancelled
 - Keep responses concise but informative
+- **Always maintain a warm, friendly, and polite tone**
+- **End responses with helpful phrases like "Safe travels!", "Mind the gap!", or "Enjoy your journey!"**
 - When users ask about "now" or "soon", use get_current_time to confirm the exact time
+
+RESPONSE QUALITY GUIDELINES:
+1. **Always include specific times** when discussing train schedules (use 24-hour or 12-hour format consistently)
+2. **Include helpful details** such as:
+   - Platform numbers (when available)
+   - Train operators (when available)
+   - Journey duration estimates
+   - Service frequency ("every 15 minutes", "hourly service", etc.)
+3. **Be complete** - don't leave users hanging with partial information
+4. **Provide alternatives** - if a train is delayed/cancelled, suggest next available service
+5. **Format information clearly** - use numbering for multiple options, bullet points for details
+6. **IMPORTANT: Always include a table summary** when showing train times:
+   - After your textual response, add a clear table with train information
+   - Use proper markdown table format with headers and alignment
+   - Include columns: Time, Destination, Platform, Status, Operator
+   - Make tables easy to scan at a glance
 
 Tools you have access to:
 
@@ -398,13 +453,39 @@ When answering questions:
    - For immediate/current info ("now", "next", within 2 hours): Use real-time tools
    - For future planning (tomorrow, next week): Use schedule tools (get_scheduled_trains)
    - For complex journeys with changes: Use find_journey_route
-3. Always specify which station you're checking (use the CRS code)
-4. Present information clearly and add a touch of humor when appropriate
-5. If trains are delayed or cancelled, be empathetic and use find_alternative_route to suggest alternatives
+3. **Always specify which station you're checking** (use the CRS code in parentheses for clarity)
+4. **Present information in a structured format**:
+   - List multiple trains clearly (numbered 1, 2, 3...)
+   - Include specific times, platform numbers, and operators
+   - Mention journey duration when relevant
+5. **If trains are delayed or cancelled**, be empathetic and:
+   - Explain the situation clearly
+   - Use find_alternative_route to suggest alternatives
+   - Provide specific alternative departure times
 6. When showing service details, explain the complete journey to help passengers plan
 7. If comparing scheduled vs actual times, use compare_schedule_vs_actual to highlight delays
+8. **Always end with a friendly, polite closing** like:
+   - "Safe travels!"
+   - "Mind the gap and enjoy your journey!"
+   - "Have a great trip!"
+   - "Enjoy the ride!"
 
-Example tone: "Right, let me check the departures from Edinburgh Waverley for ye... *checks live board* Och, good news! The next train to Glasgow leaves at 14:30 from Platform 12 and it's running on time. That's the fast service, so ye'll be in Glasgow Central in about 50 minutes. Mind the gap!"
+EXAMPLE RESPONSES:
+
+Good Example (specific, helpful, complete):
+"Right, let me check the departures from Glasgow Central (GLC) to Edinburgh Waverley (EDB) for ye...
+
+Here are the next trains:
+1. **12:00 PM** - Platform 5, ScotRail, arrives 12:50 PM (50 minutes)
+2. **12:15 PM** - Platform 7, ScotRail, arrives 13:05 PM (50 minutes)  
+3. **12:30 PM** - Platform 5, ScotRail, arrives 13:20 PM (50 minutes)
+
+All running on time! Trains run every 15 minutes during peak hours. Safe travels!"
+
+Avoid (incomplete, vague):
+"Let me check... The next train is at 12:00. There are trains every 15 minutes."
+
+Example tone: "Right, let me check the departures from Edinburgh Waverley for ye... *checks live board* Och, good news! The next train to Glasgow leaves at 14:30 from Platform 12 and it's running on time. That's the fast service, so ye'll be in Glasgow Central in about 50 minutes. Mind the gap and safe travels!"
 """
         
         # Initialize conversation with system prompt
@@ -553,6 +634,35 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
         Returns:
             Formatted string with tool results
         """
+        
+        def create_train_table(trains_data):
+            """Helper function to create a markdown table for train information.
+            
+            Args:
+                trains_data: List of dictionaries with keys: time, destination, platform, status, operator
+                
+            Returns:
+                Markdown formatted table string
+            """
+            if not trains_data:
+                return ""
+            
+            # Create table header
+            table = "\n\n**Train Times Summary:**\n\n"
+            table += "| Time | Destination | Platform | Status | Operator |\n"
+            table += "|------|-------------|----------|--------|----------|\n"
+            
+            # Add rows
+            for train in trains_data:
+                time = train.get('time', 'N/A')
+                destination = train.get('destination', 'N/A')
+                platform = train.get('platform', 'TBA')
+                status = train.get('status', 'N/A')
+                operator = train.get('operator', 'N/A')
+                table += f"| {time} | {destination} | {platform} | {status} | {operator} |\n"
+            
+            return table
+        
         try:
             if tool_name == "get_current_time":
                 now = datetime.now()
@@ -589,8 +699,18 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                 )
                 if isinstance(result, DepartureBoardResponse):
                     output = f"Departure board for {result.station}:\n"
+                    trains_data = []
                     for train in result.trains:
                         output += f"- {train.std} to {train.destination}, Platform {train.platform}, ETD: {train.etd} ({train.operator})\n"
+                        trains_data.append({
+                            'time': train.std,
+                            'destination': train.destination,
+                            'platform': train.platform or 'TBA',
+                            'status': train.etd,
+                            'operator': train.operator
+                        })
+                    # Add table summary
+                    output += create_train_table(trains_data)
                     return output
                 else:
                     return f"Error: {result.message}"
@@ -605,6 +725,7 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                 )
                 if isinstance(result, DetailedDeparturesResponse):
                     output = f"Detailed departures from {result.station}:\n"
+                    trains_data = []
                     for train in result.trains:
                         status = "CANCELLED" if train.is_cancelled else f"ETD: {train.etd}"
                         output += f"- {train.std} to {train.destination}, Platform {train.platform}, {status}"
@@ -615,6 +736,16 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                         if train.delay_reason:
                             output += f"\n  Delay: {train.delay_reason}"
                         output += f" (Operator: {train.operator})\n"
+                        
+                        trains_data.append({
+                            'time': train.std,
+                            'destination': train.destination,
+                            'platform': train.platform or 'TBA',
+                            'status': 'CANCELLED' if train.is_cancelled else train.etd,
+                            'operator': train.operator
+                        })
+                    # Add table summary
+                    output += create_train_table(trains_data)
                     return output
                 else:
                     return f"Error: {result.message}"
@@ -630,10 +761,22 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                         if result.cancel_reason:
                             output += f"Reason: {result.cancel_reason}\n"
                     output += f"\nCalling at ({len(result.calling_points)} stops):\n"
+                    
+                    calling_points_data = []
                     for stop in result.calling_points:
                         time = stop.actual_time or stop.estimated_time or stop.scheduled_time
                         cancelled = " [CANCELLED]" if stop.is_cancelled else ""
                         output += f"- {stop.location_name} ({stop.crs}): {time}, Platform {stop.platform or 'TBA'}{cancelled}\n"
+                        
+                        calling_points_data.append({
+                            'time': time,
+                            'destination': stop.location_name,
+                            'platform': stop.platform or 'TBA',
+                            'status': 'CANCELLED' if stop.is_cancelled else 'On route',
+                            'operator': result.operator
+                        })
+                    # Add table summary for calling points
+                    output += create_train_table(calling_points_data)
                     return output
                 else:
                     return f"Error: {result.message}"
@@ -668,9 +811,21 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                     if not trains:
                         return f"No scheduled trains found from {result['from']} to {result['to']} on {result['date']}."
                     output = f"Scheduled trains from {result['from']} to {result['to']} on {result['date']} ({result['count']} found):\n"
+                    
+                    trains_data = []
                     for train in trains:
                         output += f"- Departs {train['departure_time']}, arrives {train['arrival_time']} ({train['duration_minutes']} mins)\n"
                         output += f"  Train: {train['headcode']}, Operator: {train['operator']}, Platform {train.get('departure_platform', 'TBA')}\n"
+                        
+                        trains_data.append({
+                            'time': train['departure_time'],
+                            'destination': f"{result['to']} (arr {train['arrival_time']})",
+                            'platform': train.get('departure_platform', 'TBA'),
+                            'status': f"{train['duration_minutes']} mins",
+                            'operator': train['operator']
+                        })
+                    # Add table summary
+                    output += create_train_table(trains_data)
                     return output
                 else:
                     return f"Error: {result.get('error', 'Unknown error')}"
@@ -763,6 +918,9 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                        f"Using {'tiktoken' if TIKTOKEN_AVAILABLE else 'estimation'}")
             
             # Get response from OpenAI with tools
+            if self.debug_mode:
+                logger.debug(f"OpenAI API Call - Model: {self.model}, Messages: {len(self.conversation_history)}, Tools: {len(self.tools)}")
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.conversation_history,
@@ -771,6 +929,14 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                 temperature=0.7,
                 max_tokens=MAX_TOKENS_PER_RESPONSE
             )
+            
+            # Log response details in debug mode
+            if self.debug_mode:
+                logger.debug(f"OpenAI Response - ID: {response.id}, Model: {response.model}, "
+                           f"Usage: {response.usage.total_tokens} tokens "
+                           f"(prompt: {response.usage.prompt_tokens}, completion: {response.usage.completion_tokens})")
+                logger.debug(f"View request at: https://platform.openai.com/playground/chat?model={self.model}")
+                logger.info(f"Request ID: {response.id} - Check OpenAI dashboard for details")
             
             response_message = response.choices[0].message
             tool_calls = response_message.tool_calls
@@ -799,8 +965,14 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
                     
+                    if self.debug_mode:
+                        logger.debug(f"Tool Call - Function: {function_name}, Args: {function_args}")
+                    
                     # Execute the tool
                     function_response = self._execute_tool(function_name, function_args)
+                    
+                    if self.debug_mode:
+                        logger.debug(f"Tool Response - Function: {function_name}, Response length: {len(function_response)} chars")
                     
                     # Add tool response to history
                     self.conversation_history.append({
@@ -812,12 +984,20 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                 
                 # Get final response with tool results
                 try:
+                    if self.debug_mode:
+                        logger.debug(f"OpenAI API Call (with tool results) - Messages: {len(self.conversation_history)}")
+                    
                     second_response = self.client.chat.completions.create(
                         model=self.model,
                         messages=self.conversation_history,
                         temperature=0.7,
                         max_tokens=MAX_TOKENS_PER_RESPONSE
                     )
+                    
+                    if self.debug_mode:
+                        logger.debug(f"OpenAI Response - ID: {second_response.id}, "
+                                   f"Usage: {second_response.usage.total_tokens} tokens")
+                        logger.info(f"Request ID: {second_response.id} - Check OpenAI dashboard")
                     
                     final_message = second_response.choices[0].message.content
                     

@@ -198,6 +198,78 @@
             border-bottom-left-radius: 4px;
         }
 
+        /* Train Times Table */
+        .train-table-container {
+            margin-top: 20px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            border-radius: 16px;
+            padding: 20px;
+            max-width: 85%;
+        }
+
+        .table-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 16px;
+            letter-spacing: -0.01em;
+        }
+
+        .train-times-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 14px;
+        }
+
+        .train-times-table thead {
+            background: rgba(102, 126, 234, 0.15);
+        }
+
+        .train-times-table th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #667eea;
+            border-bottom: 2px solid rgba(102, 126, 234, 0.3);
+            white-space: nowrap;
+        }
+
+        .train-times-table th:first-child {
+            border-top-left-radius: 8px;
+        }
+
+        .train-times-table th:last-child {
+            border-top-right-radius: 8px;
+        }
+
+        .train-times-table td {
+            padding: 12px 16px;
+            color: #f5f5f7;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .train-times-table tbody tr {
+            transition: background-color 0.2s ease;
+        }
+
+        .train-times-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .train-times-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .train-times-table tbody tr:last-child td:first-child {
+            border-bottom-left-radius: 8px;
+        }
+
+        .train-times-table tbody tr:last-child td:last-child {
+            border-bottom-right-radius: 8px;
+        }
+
         /* Input Area */
         .input-area {
             border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -448,12 +520,14 @@
                 });
 
                 const data = await response.json();
+                console.log('Received data:', data);
+                console.log('Table data:', data.table);
 
                 // Remove loading
                 removeLoadingMessage();
 
                 if (data.success) {
-                    addMessage('agent', data.response);
+                    addMessage('agent', data.response, data.table);
                 } else {
                     addMessage('agent', 'Error: ' + (data.error || 'Unknown error'));
                 }
@@ -468,7 +542,9 @@
             }
         }
 
-        function addMessage(type, content) {
+        function addMessage(type, content, tableData = null) {
+            console.log('addMessage called with:', { type, content: content.substring(0, 100), tableData });
+            
             const messageBlock = document.createElement('div');
             messageBlock.className = `message-block ${type}-message`;
 
@@ -482,8 +558,50 @@
 
             messageBlock.appendChild(header);
             messageBlock.appendChild(messageContent);
-            messagesContainer.appendChild(messageBlock);
+            
+            // Add table if present
+            if (tableData && tableData.headers && tableData.rows) {
+                console.log('Creating table with data:', tableData);
+                const tableContainer = document.createElement('div');
+                tableContainer.className = 'train-table-container';
+                
+                const tableTitle = document.createElement('div');
+                tableTitle.className = 'table-title';
+                tableTitle.textContent = 'Train Times Summary';
+                tableContainer.appendChild(tableTitle);
+                
+                const table = document.createElement('table');
+                table.className = 'train-times-table';
+                
+                // Create header
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                tableData.headers.forEach(header => {
+                    const th = document.createElement('th');
+                    th.textContent = header;
+                    headerRow.appendChild(th);
+                });
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+                
+                // Create body
+                const tbody = document.createElement('tbody');
+                tableData.rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    row.forEach(cell => {
+                        const td = document.createElement('td');
+                        td.textContent = cell;
+                        tr.appendChild(td);
+                    });
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+                
+                tableContainer.appendChild(table);
+                messageBlock.appendChild(tableContainer);
+            }
 
+            messagesContainer.appendChild(messageBlock);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
