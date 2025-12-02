@@ -241,13 +241,6 @@ def get_config() -> AppConfig:
     return config
 
 
-def reload_config() -> AppConfig:
-    """Reload configuration from environment variables."""
-    global config
-    config = AppConfig()
-    return config
-
-
 def get_train_movements_config() -> TrainMovementsConfig:
     """Get train movements configuration instance."""
     return TrainMovementsConfig()

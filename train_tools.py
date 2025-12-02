@@ -795,138 +795,6 @@ class TrainTools:
         
         return "Invalid board data format"
 
-    def main(self) -> None:
-        """
-        Demo: Display comprehensive departure information for Glasgow Central.
-        
-        Demonstrates all four main API methods:
-        1. Basic departure board
-        2. Detailed departures with cancellation/delay info
-        3. Service details with full calling pattern
-        4. Network-wide incident messages
-        """
-        self._print_header()
-        self._demo_basic_board()
-        self._demo_detailed_departures()
-        self._demo_service_details()
-        self._demo_incident_messages()
-        self._print_footer()
-    
-    def _print_header(self) -> None:
-        """Print demo header."""
-        print("\n" + "=" * 70)
-        print("🚂 Train Departure Information for Glasgow Central")
-        print("=" * 70)
-    
-    def _print_footer(self) -> None:
-        """Print demo footer."""
-        print("\n" + "=" * 70)
-    
-    def _demo_basic_board(self) -> None:
-        """Demonstrate basic departure board."""
-        print("\n📋 Basic Departure Board:")
-        print("-" * 70)
-        board_data = self.get_departure_board('GLC', num_rows=3)
-        formatted_board = self.format_departures(board_data)
-        print(formatted_board)
-    
-    def _demo_detailed_departures(self) -> None:
-        """Demonstrate detailed departures with cancellation info."""
-        print("\n📋 Next Departures with Details:")
-        print("-" * 70)
-        details_data = self.get_next_departures_with_details('GLC', time_window=120)
-        
-        if isinstance(details_data, DetailedDeparturesResponse) and details_data.trains:
-            print(f"\nStation: {details_data.station}")
-            print(f"{'Service ID':<20} {'STD':<8} {'ETD':<8} {'Destination':<25} {'Status':<15} {'Reason':<20}")
-            print("-" * 96)
-            
-            for train in details_data.trains:
-                status = "Cancelled" if train.is_cancelled else train.etd
-                reason = train.cancel_reason or train.delay_reason or "-"
-                service_id = train.service_id or "N/A"
-                print(f"{service_id:<20} {train.std:<8} {train.etd:<8} {train.destination:<25} {status:<15} {reason:<20}")
-        elif isinstance(details_data, DetailedDeparturesError):
-            print(details_data.message)
-        else:
-            print('Unable to fetch details')
-    
-    def _demo_incident_messages(self) -> None:
-        """Demonstrate incident messages retrieval."""
-        print("\n📋 Station Messages:")
-        print("-" * 70)
-        messages_data = self.get_station_messages()
-        
-        if isinstance(messages_data, StationMessagesError):
-            print(messages_data.message)
-        elif isinstance(messages_data, StationMessagesResponse) and not messages_data.messages:
-            print("No incident messages available")
-        elif isinstance(messages_data, StationMessagesResponse):
-            print(f"Found {len(messages_data.messages)} incident message(s)")
-            print(f"{'ID':<15} {'Category':<12} {'Severity':<12} {'Title':<45}")
-            print("-" * 84)
-            
-            for incident in messages_data.messages[:5]:  # Show first 5
-                incident_id = (incident.id or 'N/A')[:13]
-                category = (incident.category or 'Unknown')[:10]
-                severity = (incident.severity or 'N/A')[:10]
-                title = (incident.title or 'No title')[:43]
-                print(f"{incident_id:<15} {category:<12} {severity:<12} {title:<45}")
-    
-    def _demo_service_details(self) -> None:
-        """Demonstrate service details retrieval."""
-        print("\n📋 Service Details:")
-        print("-" * 70)
-        
-        # First get a departure board to obtain a service ID
-        board_data = self.get_departure_board('GLC', num_rows=1)
-        
-        if isinstance(board_data, DepartureBoardResponse) and board_data.trains:
-            # Get detailed departures to obtain service ID
-            details_data = self.get_next_departures_with_details('GLC', time_window=120)
-            
-            if isinstance(details_data, DetailedDeparturesResponse) and details_data.trains:
-                # Use the first train's service ID
-                first_train = details_data.trains[0]
-                service_id = first_train.service_id
-                
-                if service_id and service_id != 'N/A':
-                    print(f"Fetching details for service: {service_id}")
-                    service_details = self.get_service_details(service_id)
-                    
-                    if isinstance(service_details, ServiceDetailsResponse):
-                        print(f"\nService: {service_details.origin} → {service_details.destination}")
-                        print(f"Operator: {service_details.operator or 'Unknown'}")
-                        print(f"Service Type: {service_details.service_type or 'Unknown'}")
-                        print(f"Status: {'Cancelled' if service_details.is_cancelled else 'Running'}")
-                        
-                        if service_details.calling_points:
-                            print(f"\nCalling Points ({len(service_details.calling_points)} stops):")
-                            print(f"{'Station':<30} {'Scheduled':<10} {'Expected':<10} {'Platform':<8}")
-                            print("-" * 58)
-                            for stop in service_details.calling_points[:10]:  # Show first 10
-                                sched = stop.scheduled_time or '-'
-                                est = stop.estimated_time or '-'
-                                plat = stop.platform or 'TBA'
-                                print(f"{stop.location_name:<30} {sched:<10} {est:<10} {plat:<8}")
-                    elif isinstance(service_details, ServiceDetailsError):
-                        print(f"Error: {service_details.message}")
-                else:
-                    print("No valid service ID available")
-            else:
-                print("Unable to fetch departure details for service ID")
-        else:
-            print("Unable to fetch departures to get service ID")
-    
-    def _get_train_status(self, train: Dict) -> str:
-        """Determine train status from train details."""
-        if train['is_cancelled']:
-            return "Cancelled"
-        elif train['etd'] == train['std']:
-            return "On time"
-        else:
-            return "Delayed"
-
 
 # ============================================================================
 # Module-Level Wrapper Functions (Backwards Compatibility)
@@ -970,15 +838,11 @@ def get_service_details(service_id: str) -> Union[ServiceDetailsResponse, Servic
     return _default_tools.get_service_details(service_id)
 
 
-def main_demo() -> None:
-    """Demo function to run the main method of TrainTools."""
-    _default_tools.main()
-
-
 # ============================================================================
 # Entry Point
 # ============================================================================
 
 if __name__ == "__main__":
-    main_demo()
+    print("TrainTools module - Import this module to use train data APIs")
+    print("Example: from train_tools import TrainTools")
 
