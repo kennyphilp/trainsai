@@ -206,32 +206,6 @@ class AppConfig(BaseSettings):
         extra = "ignore"  # Ignore extra environment variables
 
 
-class TrainMovementsConfig:
-    """Configuration for Darwin Push Port train movements feed."""
-    
-    # Darwin Push Port connection details
-    host: str = "darwin-dist-44ae45.nationalrail.co.uk"
-    port: int = 61613
-    username: str = "DARWINc7af8eb3-ad92-4869-8682-af701f2ce953"
-    password: str = "022d5ca4-c7b3-4190-a64e-a679c211f3eb"
-    queue: str = "/topic/darwin.pushport-v16"
-    
-    # STOMP heartbeat configuration (milliseconds)
-    heartbeat_send_interval: int = 15000
-    heartbeat_receive_interval: int = 15000
-    
-    # Reconnection configuration
-    reconnect_delay: int = 5  # Initial delay in seconds
-    reconnect_max_delay: int = 300  # Maximum delay in seconds
-    
-    # Scottish train filtering
-    scottish_toc_codes: List[str] = ["SR"]  # ScotRail TOC code
-    scottish_crs_codes: List[str] = [
-        "EDB", "GLC", "ABD", "INV", "DND", "PER", "STG",
-        "AYR", "KDY", "MBR", "FAL", "DUM", "HYM", "TWE"
-    ]
-
-
 # Global configuration instance
 config = AppConfig()
 
@@ -239,8 +213,3 @@ config = AppConfig()
 def get_config() -> AppConfig:
     """Get the global configuration instance."""
     return config
-
-
-def get_train_movements_config() -> TrainMovementsConfig:
-    """Get train movements configuration instance."""
-    return TrainMovementsConfig()
