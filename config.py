@@ -93,6 +93,24 @@ class AppConfig(BaseSettings):
         description="Session time-to-live in hours"
     )
     
+    # Health Monitoring Configuration
+    health_cache_timeout: int = Field(
+        default=30,
+        description="Health check cache timeout in seconds"
+    )
+    max_memory_mb: int = Field(
+        default=500,
+        description="Maximum memory usage in MB before degraded status"
+    )
+    max_cpu_percent: float = Field(
+        default=80.0,
+        description="Maximum CPU usage percentage before degraded status"
+    )
+    max_memory_percent: float = Field(
+        default=85.0,
+        description="Maximum memory usage percentage before degraded status"
+    )
+    
     # OpenAI Configuration
     openai_api_key: Optional[str] = Field(
         default=None,

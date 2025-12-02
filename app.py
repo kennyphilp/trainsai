@@ -21,6 +21,7 @@ from flask_talisman import Talisman
 from scotrail_agent import ScotRailAgent
 from config import get_config
 from dependencies import get_container
+from health_integration import setup_health_monitoring, update_agents_health_monitoring
 
 # Load configuration
 config = get_config()
@@ -107,6 +108,16 @@ else:
         logger.info('HTTPS enforcement disabled by configuration (HTTPS_ENABLED=false)')
 
 
+# Store agent instances per session with LRU eviction
+agents = OrderedDict()
+session_metadata = {}  # Track last access time
+agents_lock = Lock()
+
+
+# Initialize health monitoring system
+setup_health_monitoring(app, config, agents)
+
+
 def validate_message_content(message: str) -> tuple[bool, str]:
     """Validate message content and return (is_valid, error_message)."""
     if not message or not message.strip():
@@ -128,12 +139,6 @@ def validate_message_content(message: str) -> tuple[bool, str]:
     return True, ""
 
 
-# Store agent instances per session with LRU eviction
-agents = OrderedDict()
-session_metadata = {}  # Track last access time
-agents_lock = Lock()
-
-
 def _cleanup_expired_sessions():
     """Remove sessions older than configured TTL."""
     now = datetime.now()
@@ -143,6 +148,8 @@ def _cleanup_expired_sessions():
     ]
     if expired:
         logger.info(f"Cleaning up {len(expired)} expired sessions")
+        # Update health monitoring with cleaned agents dict
+        update_agents_health_monitoring(app, agents)
     for sid in expired:
         agents.pop(sid, None)
         session_metadata.pop(sid, None)
@@ -168,6 +175,8 @@ def get_or_create_agent(session_id):
                 oldest_id, _ = agents.popitem(last=False)
                 session_metadata.pop(oldest_id, None)
                 logger.info(f"LRU eviction: removed session {oldest_id[:8]}... (total sessions: {len(agents)})")
+                # Update health monitoring with new agents dict
+                update_agents_health_monitoring(app, agents)
             
             # Always use DI container - this allows test mocks to be injected
             container = get_container()
@@ -175,6 +184,10 @@ def get_or_create_agent(session_id):
             
             session_metadata[session_id] = datetime.now()
             logger.info(f"Created new agent for session {session_id[:8]}... (total sessions: {len(agents)})")
+            
+            # Update health monitoring with new agents dict
+            update_agents_health_monitoring(app, agents)
+            
             return agents[session_id], None
             
         except ValueError as e:
@@ -306,18 +319,6 @@ def reset_conversation():
             'error': f'Failed to reset conversation: {str(e)}',
             'success': False
         }), 500
-
-
-@app.route('/api/health', methods=['GET'])
-@limiter.limit(config.rate_limit_health, exempt_when=lambda: app.config.get('TESTING', False))
-def health_check():
-    """Health check endpoint."""
-    logger.debug(f"Health check from {request.remote_addr}")
-    return jsonify({
-        'status': 'healthy',
-        'service': 'ScotRail Train Travel Advisor',
-        'active_sessions': len(agents)
-    })
 
 
 if __name__ == '__main__':
