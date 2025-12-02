@@ -1,0 +1,17 @@
+{
+  "total_tested": 5,
+  "successful_mappings": 0,
+  "failed_mappings": 5,
+  "api_calls": 15,
+  "mappings": [],
+  "patterns": {
+    "service_id_contains_rid": 0,
+    "numeric_pattern_match": 0,
+    "timing_correlation": 0,
+    "operator_match": 0
+  },
+  "feasibility": "LOW",
+  "success_rate": 0.0,
+  "timestamp": "2025-12-01T17:07:44.858199",
+  "recommendation": "Focus on Option 1 (Schedule Storage)"
+}

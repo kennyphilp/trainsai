@@ -14,7 +14,11 @@ import xml.etree.ElementTree as ET
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('darwin_cancellations.log'),
+        logging.StreamHandler()
+    ]
 )
 
 logger = logging.getLogger(__name__)
@@ -26,6 +30,7 @@ def main():
     print("=" * 80)
     print("Connecting to Darwin Push Port STOMP feed...")
     print("This will display messages as they arrive.")
+    print("Cancellation details will be logged to 'darwin_cancellations.log'")
     print("Press Ctrl+C to stop.")
     print()
     
@@ -76,13 +81,120 @@ def main():
                 
                 # Look for cancellations (deactivated schedules)
                 ns = {'ns': 'http://www.thalesgroup.com/rtti/PushPort/v16'}
-                deactivated = root.findall('.//ns:deactivated', ns)
                 
-                if deactivated:
-                    for d in deactivated:
+                # Debug: Print XML structure for messages with deactivated elements
+                deactivated_elements = root.findall('.//ns:deactivated', ns)
+                if deactivated_elements:
+                    logger.info(f"Found {len(deactivated_elements)} deactivated elements in message {message_count}")
+                    # Print a sample of the XML for debugging
+                    xml_str = ET.tostring(root, encoding='unicode')
+                    logger.info(f"Sample XML with cancellation: {xml_str[:500]}...")
+                
+                # Try different approaches to find journey structure
+                all_elements = root.findall('.//*')
+                journey_like_elements = [elem for elem in all_elements if 'rid' in elem.attrib or 'uid' in elem.attrib]
+                
+                if deactivated_elements:
+                    logger.info(f"Found {len(journey_like_elements)} elements with rid/uid attributes")
+                    for elem in journey_like_elements[:3]:  # Show first 3
+                        logger.info(f"Element: {elem.tag}, attrib: {elem.attrib}")
+                
+                # Original logic - look for deactivated in journeys
+                journeys = root.findall('.//ns:journey', ns)
+                if deactivated_elements and not journeys:
+                    logger.info("Found deactivated elements but no journey elements - checking alternative structures")
+                    
+                    # Try finding schedule elements instead
+                    schedules = root.findall('.//ns:schedule', ns)
+                    logger.info(f"Found {len(schedules)} schedule elements")
+                    
+                    # Try finding train status elements
+                    ts_elements = root.findall('.//ns:TS', ns)
+                    logger.info(f"Found {len(ts_elements)} TS (train status) elements")
+                
+                for journey in journeys:
+                    deactivated = journey.findall('.//ns:deactivated', ns)
+                    
+                    if deactivated:
+                        for d in deactivated:
+                            cancellation_count += 1
+                            rid = d.get('rid', 'UNKNOWN')
+                            uid = d.get('uid', 'UNKNOWN')
+                            
+                            # Get journey details since we already have the parent
+                            toc = journey.get('toc', 'UNKNOWN')
+                            train_id = journey.get('trainId', 'UNKNOWN')
+                            ssd = journey.get('ssd', 'UNKNOWN')
+                            
+                            # Try to find origin and destination
+                            or_elem = journey.find('.//ns:OR', ns)
+                            dt_elem = journey.find('.//ns:DT', ns)
+                            
+                            origin_tiploc = or_elem.get('tpl', 'UNKNOWN') if or_elem is not None else 'UNKNOWN'
+                            dest_tiploc = dt_elem.get('tpl', 'UNKNOWN') if dt_elem is not None else 'UNKNOWN'
+                            
+                            # Get working departure time if available
+                            wd = or_elem.get('wd', 'UNKNOWN') if or_elem is not None else 'UNKNOWN'
+                            wtd = or_elem.get('wtd', 'UNKNOWN') if or_elem is not None else 'UNKNOWN'
+                            
+                            # Log comprehensive cancellation information
+                            logger.info(f"CANCELLATION_DETECTED|{cancellation_count}|{rid}|{uid}|{train_id}|{toc}|{ssd}|{origin_tiploc}|{dest_tiploc}|{wd}|{wtd}|{time.strftime('%Y-%m-%d %H:%M:%S')}")
+                            
+                            # Also print to console for visibility
+                            print(f"\n🚫 CANCELLATION #{cancellation_count}:")
+                            print(f"   RID (Route Identifier): {rid}")
+                            print(f"   UID (Unique Identifier): {uid}")
+                            print(f"   Train ID (Service Identifier): {train_id}")
+                            print(f"   TOC (Train Operating Company): {toc}")
+                            print(f"   Start Date (Scheduled): {ssd}")
+                            print(f"   Origin (TIPLOC): {origin_tiploc}")
+                            print(f"   Destination (TIPLOC): {dest_tiploc}")
+                            print(f"   Scheduled Departure: {wd}")
+                            print(f"   Working Departure: {wtd}")
+                            print(f"   Detection Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                            print("-" * 50)
+                
+                # Alternative approach: Look for deactivated elements directly and find their context
+                if deactivated_elements and not any(journey.findall('.//ns:deactivated', ns) for journey in journeys):
+                    logger.info(f"Processing {len(deactivated_elements)} deactivated elements outside journey structure")
+                    
+                    for d in deactivated_elements:
                         cancellation_count += 1
                         rid = d.get('rid', 'UNKNOWN')
-                        logger.info(f"🚫 Cancellation detected: RID={rid}")
+                        uid = d.get('uid', 'UNKNOWN')
+                        
+                        # Try to find parent element with more details
+                        # Since we can't use getparent(), look for elements with same rid/uid
+                        matching_elements = []
+                        for elem in all_elements:
+                            if elem.attrib.get('rid') == rid or elem.attrib.get('uid') == uid:
+                                matching_elements.append(elem)
+                        
+                        toc = 'UNKNOWN'
+                        train_id = 'UNKNOWN'
+                        ssd = 'UNKNOWN'
+                        
+                        # Extract info from matching elements
+                        for elem in matching_elements:
+                            if 'toc' in elem.attrib:
+                                toc = elem.attrib['toc']
+                            if 'trainId' in elem.attrib:
+                                train_id = elem.attrib['trainId']
+                            if 'ssd' in elem.attrib:
+                                ssd = elem.attrib['ssd']
+                        
+                        # Log comprehensive cancellation information
+                        logger.info(f"CANCELLATION_DETECTED|{cancellation_count}|{rid}|{uid}|{train_id}|{toc}|{ssd}|UNKNOWN|UNKNOWN|UNKNOWN|UNKNOWN|{time.strftime('%Y-%m-%d %H:%M:%S')}")
+                        
+                        # Also print to console for visibility
+                        print(f"\n🚫 CANCELLATION #{cancellation_count} (Alternative Detection):")
+                        print(f"   RID (Route Identifier): {rid}")
+                        print(f"   UID (Unique Identifier): {uid}")
+                        print(f"   Train ID (Service Identifier): {train_id}")
+                        print(f"   TOC (Train Operating Company): {toc}")
+                        print(f"   Start Date (Scheduled): {ssd}")
+                        print(f"   Detection Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                        print("-" * 50)
                 
                 # Show progress every 100 messages
                 if message_count % 100 == 0:

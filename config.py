@@ -147,6 +147,50 @@ class AppConfig(BaseSettings):
         description="Path to MSN station file"
     )
     
+    # Darwin Schedule Enrichment Configuration
+    darwin_enrichment_enabled: bool = Field(
+        default=True,
+        description="Enable Darwin schedule enrichment for cancellations"
+    )
+    darwin_db_path: str = Field(
+        default="darwin_schedules.db",
+        description="Path to Darwin schedules SQLite database"
+    )
+    darwin_schedule_retention_days: int = Field(
+        default=7,
+        description="Number of days to retain Darwin schedule data"
+    )
+    darwin_feed_username: Optional[str] = Field(
+        default=None,
+        description="Darwin feed username for schedule updates"
+    )
+    darwin_feed_password: Optional[str] = Field(
+        default=None,
+        description="Darwin feed password for schedule updates"
+    )
+    darwin_feed_host: str = Field(
+        default="darwin-dist-44ae45.nationalrail.co.uk",
+        description="Darwin feed hostname"
+    )
+    darwin_feed_port: int = Field(
+        default=61613,
+        description="Darwin feed port"
+    )
+    darwin_schedule_queue: str = Field(
+        default="/topic/darwin.pushport-v16",
+        description="Darwin schedule queue name"
+    )
+    
+    # Cancellation Service Configuration
+    cancellation_max_stored: int = Field(
+        default=100,
+        description="Maximum number of cancellations to store in memory"
+    )
+    cancellation_cleanup_hours: int = Field(
+        default=24,
+        description="Hours after which to clean up old cancellations"
+    )
+    
     # Logging Configuration
     log_level: str = Field(
         default="INFO",
@@ -195,6 +239,13 @@ class AppConfig(BaseSettings):
         
         if not self.ldb_token:
             missing.append("LDB_TOKEN")
+            
+        # Darwin feed credentials for schedule enrichment
+        if self.darwin_enrichment_enabled:
+            if not self.darwin_feed_username:
+                missing.append("DARWIN_FEED_USERNAME")
+            if not self.darwin_feed_password:
+                missing.append("DARWIN_FEED_PASSWORD")
         
         return missing
     
@@ -216,12 +267,16 @@ class TrainMovementsConfig:
     password: str = "022d5ca4-c7b3-4190-a64e-a679c211f3eb"
     queue: str = "/topic/darwin.pushport-v16"
     
+    # STOMP client configuration
+    client_id: str = "DARWINc7af8eb3-ad92-4869-8682-af701f2ce953-client"
+    subscription_name: str = "DarwinPushPortSubscription"
+    
     # STOMP heartbeat configuration (milliseconds)
     heartbeat_send_interval: int = 15000
     heartbeat_receive_interval: int = 15000
     
     # Reconnection configuration
-    reconnect_delay: int = 5  # Initial delay in seconds
+    reconnect_base_delay: int = 5  # Initial delay in seconds
     reconnect_max_delay: int = 300  # Maximum delay in seconds
     
     # Scottish train filtering

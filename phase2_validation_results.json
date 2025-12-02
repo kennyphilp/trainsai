@@ -1,0 +1,97 @@
+{
+  "timestamp": "2025-12-01T18:28:13.264612",
+  "phase": "Phase 2 - Passenger-Facing Integration",
+  "services_tested": 7,
+  "service_health": {
+    "Phase 1 - Enhanced API": {
+      "status": "unavailable",
+      "error": "Connection refused"
+    },
+    "Phase 1 - Live Integration": {
+      "status": "unavailable",
+      "error": "Connection refused"
+    },
+    "Mobile API": {
+      "status": "unavailable",
+      "error": "Connection refused"
+    },
+    "Smart Notifications": {
+      "status": "unavailable",
+      "error": "Connection refused"
+    },
+    "Alternative Routing": {
+      "status": "unavailable",
+      "error": "Connection refused"
+    },
+    "Station Displays": {
+      "status": "unavailable",
+      "error": "Connection refused"
+    },
+    "Passenger Portal": {
+      "status": "unavailable",
+      "error": "Connection refused"
+    }
+  },
+  "functionality_tests": {
+    "mobile_api": {
+      "cancellations_endpoint": {
+        "status": "error",
+        "error": "HTTPConnectionPool(host='localhost', port=5002): Max retries exceeded with url: /mobile/v1/cancellations (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1068e3530>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+      },
+      "alerts_endpoint": {
+        "status": "error",
+        "error": "HTTPConnectionPool(host='localhost', port=5002): Max retries exceeded with url: /mobile/v1/alerts (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1068e2120>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+      }
+    },
+    "routing": {
+      "route_planning": {
+        "status": "error",
+        "error": "HTTPConnectionPool(host='localhost', port=5004): Max retries exceeded with url: /routing/v1/plan (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x106924cb0>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+      }
+    },
+    "station_displays": {
+      "station_display": {
+        "status": "error",
+        "error": "HTTPConnectionPool(host='localhost', port=5005): Max retries exceeded with url: /display/v1/station/GLASGOW (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1069255b0>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+      },
+      "web_display": {
+        "status": "error",
+        "error": "HTTPConnectionPool(host='localhost', port=5005): Max retries exceeded with url: /display/v1/station/GLASGOW/web (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1068e2360>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+      }
+    },
+    "notifications": {
+      "notifications_recent": {
+        "status": "error",
+        "error": "HTTPConnectionPool(host='localhost', port=5003): Max retries exceeded with url: /notifications/v1/recent (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1068e3440>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+      }
+    },
+    "passenger_portal": {
+      "portal_main": {
+        "status": "error",
+        "error": "HTTPConnectionPool(host='localhost', port=5006): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1068e3ec0>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+      },
+      "portal_api": {
+        "status": "error",
+        "error": "HTTPConnectionPool(host='localhost', port=5006): Max retries exceeded with url: /api/journey-plan (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x106925610>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+      }
+    }
+  },
+  "integration_tests": {
+    "phase1_enhanced_api": {
+      "status": "error",
+      "error": "HTTPConnectionPool(host='localhost', port=8080): Max retries exceeded with url: /cancellations/stats (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x106924c50>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+    },
+    "data_flow_integration": {
+      "status": "error",
+      "error": "HTTPConnectionPool(host='localhost', port=8080): Max retries exceeded with url: /cancellations (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x106925c10>: Failed to establish a new connection: [Errno 61] Connection refused'))"
+    }
+  },
+  "summary": {
+    "services_healthy": "0/7",
+    "services_health_rate": "0.0%",
+    "functionality_tests_passed": "0/8",
+    "functionality_success_rate": "0.0%",
+    "phase1_integration": "fail",
+    "overall_status": "FAIL"
+  }
+}
