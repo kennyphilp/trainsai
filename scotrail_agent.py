@@ -126,7 +126,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "get_departure_board",
-                    "description": "Fetch basic departure board information for a station. Returns scheduled time, estimated time, destination, platform, and operating company for upcoming trains.",
+                    "description": "Fetch basic departure board information for a station - like the displays you see at train stations. Returns scheduled departure time, estimated departure time, destination, platform number, and operating company for upcoming trains.\n\nInputs: Station CRS code (3 letters) and optional number of results\nOutputs: List of upcoming departures with times, destinations, platforms, and operators\nExample: get_departure_board('EDB', 5) returns next 5 departures from Edinburgh Waverley\nUse for: Quick departure board view, checking next few trains, general station activity",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -148,7 +148,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "get_next_departures_with_details",
-                    "description": "Fetch comprehensive departure information with service details including cancellation status, delay reasons, service IDs, and train characteristics. Supports filtering to specific destinations.",
+                    "description": "Fetch comprehensive departure information with full service details including cancellation status, delay reasons, service IDs, and train characteristics. More detailed than basic departure board.\n\nInputs: Station CRS code, optional destination filter list, time offset (minutes from now), search window (minutes)\nOutputs: Detailed departure list with cancellation status, delay reasons, service IDs, train characteristics\nExample: get_next_departures_with_details('GLC', ['EDB', 'ABD'], 0, 120) gets detailed departures from Glasgow Central to Edinburgh or Aberdeen in next 2 hours\nUse for: Detailed journey planning, checking specific routes, understanding service disruptions",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -180,7 +180,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "get_service_details",
-                    "description": "Retrieve detailed information about a specific train service including the complete calling pattern (all stops), real-time status, cancellations, delays, and operator information. Requires a service_id obtained from get_next_departures_with_details.",
+                    "description": "Retrieve comprehensive information about a specific train service including complete calling pattern (all stops), real-time status, cancellations, delays, platform changes, and operator information. Shows the full journey of a specific train.\n\nInputs: Service ID (obtained from get_next_departures_with_details)\nOutputs: Complete train journey with all stops, times (scheduled/estimated/actual), platforms, delay information\nExample: get_service_details('ABC123') shows all stops for train service ABC123 with real-time updates\nUse for: Following a specific train journey, checking intermediate stops, monitoring delays across entire route",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -197,7 +197,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "get_station_messages",
-                    "description": "Retrieve service disruption messages and incident information. Returns delays, cancellations, engineering works, and other service disruptions. Can filter by station or return all network-wide incidents.",
+                    "description": "Retrieve current service disruption messages, incident information, and important notices. Returns delays, cancellations, engineering works, planned maintenance, and other service disruptions affecting the network.\n\nInputs: Optional station CRS code (omit for network-wide messages)\nOutputs: List of active incidents with details, affected routes, start/end times, disruption type (planned/unplanned)\nExample: get_station_messages('GLC') gets disruptions affecting Glasgow Central; get_station_messages() gets all network disruptions\nUse for: Checking for service disruptions, understanding delay causes, finding planned engineering works",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -214,7 +214,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "get_current_time",
-                    "description": "Get the current date and time. Use this to understand what time it is now when users ask about trains leaving 'now', 'soon', 'today', or any time-relative questions.",
+                    "description": "Get the current date and time for context when users ask time-relative questions. Essential for interpreting 'now', 'soon', 'today', 'this evening', 'tomorrow morning' etc.\n\nInputs: None\nOutputs: Current date and time in both 12-hour and 24-hour formats\nExample: Returns 'Current date and time: Monday, December 02, 2025 at 03:45:30 PM (24-hour: 15:45:30)'\nUse for: Understanding user time context, interpreting relative time references, providing current time context",
                     "parameters": {
                         "type": "object",
                         "properties": {},
@@ -226,7 +226,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "resolve_station_name",
-                    "description": "Resolve a station name or partial name to its official 3-letter CRS code. Supports fuzzy matching for typos and partial names (e.g., 'edinburgh' → 'EDB', 'glasgow central' → 'GLC'). Use this when users provide station names instead of codes, or when you're unsure of the exact CRS code.",
+                    "description": "Resolve a station name or partial name to its official 3-letter CRS code using intelligent fuzzy matching. Handles typos, partial names, alternative names, and common abbreviations.\n\nInputs: Station name or partial name, optional max results limit\nOutputs: List of matching stations with names, CRS codes, and match confidence scores\nExample: resolve_station_name('edinburgh') returns 'Edinburgh (CRS: EDB) - Match score: 95%'\nUse for: Converting user-provided station names to CRS codes, handling typos, finding stations with partial information, disambiguating similar station names",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -248,7 +248,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "get_scheduled_trains",
-                    "description": "Find scheduled trains between two stations on a specific date. Use this to see all scheduled services, journey times, and plan ahead. Complements real-time data which only shows ~2 hours ahead.",
+                    "description": "Find all scheduled trains between two stations on a specific date from the published timetable. Shows planned services, journey times, and schedules for future planning. Covers entire day vs real-time data which only shows ~2 hours ahead.\n\nInputs: From station (name/CRS), to station (name/CRS), travel date (YYYY-MM-DD), optional departure time (HH:MM)\nOutputs: List of scheduled trains with departure/arrival times, journey duration, train operator, headcode, platform info, geographical context\nExample: get_scheduled_trains('Edinburgh', 'Glasgow Central', '2025-12-15', '09:00') returns all trains from 09:00 onwards on Dec 15\nUse for: Future travel planning, seeing all daily services, planning journeys beyond real-time window, comparing journey options",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -277,7 +277,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "find_journey_route",
-                    "description": "Plan a journey with connections between stations. Finds optimal routes considering interchange times and connection possibilities.",
+                    "description": "Plan complex journeys with connections between stations using intelligent route optimization. Finds optimal routes considering interchange times, connection possibilities, and minimum connection times.\n\nInputs: From station (name/CRS), to station (name/CRS), travel date (YYYY-MM-DD), optional departure time (HH:MM), max changes (default: 2)\nOutputs: Multiple journey options showing direct routes and connections, with total duration, number of changes, individual leg details\nExample: find_journey_route('Inverness', 'Glasgow Central', '2025-12-10', '14:00', 1) finds best routes with max 1 change\nUse for: Planning multi-leg journeys, finding connections between distant stations, optimizing complex routes, when no direct services exist",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -310,7 +310,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "compare_schedule_vs_actual",
-                    "description": "Compare scheduled train times with real-time data to identify delays, cancellations, and platform changes.",
+                    "description": "Compare scheduled train times with real-time performance data to identify delays, cancellations, platform changes, and service variations. Shows the impact of disruptions on planned schedules.\n\nInputs: Train UID (unique identifier), travel date (YYYY-MM-DD), real-time data object from get_service_details\nOutputs: Station-by-station comparison showing scheduled vs actual times, delay minutes, cancellations, platform changes\nExample: compare_schedule_vs_actual('C12345', '2025-12-02', real_time_data) shows delays and changes for train C12345\nUse for: Understanding service performance, analyzing delay impacts, showing customers how disruptions affect their journey",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -335,7 +335,7 @@ class ScotRailAgent:
                 "type": "function",
                 "function": {
                     "name": "find_alternative_route",
-                    "description": "Find alternative routes when a train is delayed, cancelled, or full. Suggests next available trains and different connections.",
+                    "description": "Find alternative travel options when original plans are disrupted by delays, cancellations, or capacity issues. Suggests next available trains, different routes, and backup journey options.\n\nInputs: From station (name/CRS), to station (name/CRS), original train UID, travel date (YYYY-MM-DD), disruption reason ('delay'/'cancelled'/'full')\nOutputs: List of alternative journeys with departure times, routes, operators, journey duration, platform information\nExample: find_alternative_route('Edinburgh', 'Glasgow Central', 'C12345', '2025-12-02', 'cancelled') finds alternatives when train C12345 is cancelled\nUse for: Handling service disruptions, providing backup travel options, helping customers when original plans fail",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -363,6 +363,78 @@ class ScotRailAgent:
                         "required": ["from_station", "to_station", "travel_date"]
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "plan_journey_with_context",
+                    "description": "Enhanced journey planning with geographical intelligence for natural language travel requests. Automatically resolves place names, regions, and areas to appropriate railway stations, then finds optimal routes with geographical context.\n\nInputs: From place (region/city/area/station), to place (region/city/area/station), travel date (YYYY-MM-DD), optional departure time (HH:MM), max changes (default: 2)\nOutputs: Station resolution options for both locations, multiple journey choices with geographical context, cross-regional travel indicators, detailed route information\nExample: plan_journey_with_context('Edinburgh', 'Highlands', '2025-12-10', '09:00') resolves 'Highlands' to relevant stations and plans journeys\nUse for: Natural language journey planning, handling vague location requests, geographical travel planning, regional journey discovery",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "from_place": {
+                                "type": "string",
+                                "description": "Departure location - can be place name, region, city, or station name (e.g., 'Glasgow', 'Highlands', 'Edinburgh city centre')"
+                            },
+                            "to_place": {
+                                "type": "string",
+                                "description": "Arrival location - can be place name, region, city, or station name (e.g., 'Aberdeen', 'West Coast', 'Borders region')"
+                            },
+                            "travel_date": {
+                                "type": "string",
+                                "description": "Date of travel in YYYY-MM-DD format"
+                            },
+                            "departure_time": {
+                                "type": "string",
+                                "description": "Optional minimum departure time in HH:MM format"
+                            },
+                            "max_changes": {
+                                "type": "integer",
+                                "description": "Maximum number of connections (default: 2)"
+                            }
+                        },
+                        "required": ["from_place", "to_place", "travel_date"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_stations_by_place",
+                    "description": "Search for railway stations by place name, city, region, or geographical area using intelligent geographical matching. Perfect for discovering stations when users mention locations rather than specific station names.\n\nInputs: Place name (city/region/area), optional limit (default: 10)\nOutputs: List of stations in or near the specified place with station names, CRS codes, geographical context (area/region/country)\nExample: search_stations_by_place('Glasgow', 5) returns Glasgow Central, Glasgow Queen Street, Glasgow Airport, etc. with geographical context\nUse for: Finding stations in a city or region, discovering travel options for an area, geographical station discovery, handling location-based queries",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "place_name": {
+                                "type": "string",
+                                "description": "Name of place, city, region, or area to search for stations (e.g., 'Glasgow', 'Highlands', 'Borders', 'Aberdeen area')"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of stations to return (default: 10)",
+                                "default": 10
+                            }
+                        },
+                        "required": ["place_name"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_station_with_context",
+                    "description": "Get comprehensive information about a specific station including its geographical context, regional location, nearby places, alternative names, and coordinate data. Provides complete station profile with location intelligence.\n\nInputs: Station identifier (name, CRS code, or TIPLOC)\nOutputs: Complete station profile with display name, CRS code, TIPLOC, geographical context (area/region/country), coordinates, alternative names, location description\nExample: get_station_with_context('EDB') returns full details for Edinburgh Waverley including location context and alternatives\nUse for: Providing detailed station information, explaining station locations to users, geographical context for journey planning, station disambiguation",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "station_input": {
+                                "type": "string",
+                                "description": "Station name, CRS code, or TIPLOC to get context for"
+                            }
+                        },
+                        "required": ["station_input"]
+                    }
+                }
             }
         ]
         
@@ -377,12 +449,45 @@ CRITICAL RULES:
 - If a user asks about trains, departures, arrivals, or journeys, you MUST call the appropriate tool
 - Only provide information that comes from actual tool responses
 
-Your responsibilities:
-1. Answer questions about ScotRail train departures and arrival times USING TOOLS
-2. Provide information about service interruptions, delays, and cancellations USING TOOLS
-3. Share general information about ScotRail services
-4. Be friendly, helpful, and inject appropriate Scottish humor into your responses
-5. Be aware of the current time when discussing train schedules
+TIMETABLE DATA PRIORITY RULES:
+- For immediate travel (now/next 2 hours): ALWAYS use real-time tools first (get_next_departures_with_details)
+- For future planning (>2 hours ahead): PRIORITIZE schedule tools (get_scheduled_trains)
+- For complex journeys: Use find_journey_route for multi-leg planning with connections
+- For disruptions: Use find_alternative_route with specific reason codes
+- When real-time shows delays: Cross-reference with compare_schedule_vs_actual to show impact
+
+ESSENTIAL WORKFLOWS:
+1. Station Resolution: ALWAYS resolve station names before any timetable queries
+   - Use resolve_station_name for ANY station input that isn't a clear CRS code
+   - Verify both origin and destination stations before proceeding
+
+2. Date Validation: Check travel dates against CIF data coverage
+   - Current timetable data valid until March 2025
+   - If date is outside range, inform user and suggest valid alternatives
+   - For today/tomorrow, prioritize real-time data; for future dates, use scheduled data
+
+3. Cross-Reference Analysis: When delays are detected
+   - Use compare_schedule_vs_actual to highlight specific delays and platform changes
+   - Show both scheduled and actual times for user awareness
+
+4. Proactive Alternatives: For cancelled/delayed trains
+   - Automatically call find_alternative_route to suggest alternatives
+   - Include reason for disruption (delayed/cancelled/full) in alternative search
+   - Present options with realistic timing and connections
+
+DATA SOURCE SELECTION LOGIC:
+- NOW/IMMEDIATE (0-2 hours): get_next_departures_with_details → Real-time accuracy critical
+- TODAY/LATER (2-24 hours): get_scheduled_trains THEN cross-check with real-time if available
+- TOMORROW+ (24+ hours): get_scheduled_trains → Schedule planning mode
+- JOURNEY PLANNING: find_journey_route → Connection optimization
+- DISRUPTION HANDLING: find_alternative_route → Problem resolution
+
+ERROR HANDLING & USER GUIDANCE:
+- If timetable_tools is None: "I'm sorry, schedule data is temporarily unavailable. I can still check live departures for the next 2 hours."
+- If no scheduled results found: "No trains found for that date. Let me check nearby dates or suggest alternative routes."
+- If invalid date (outside CIF range): "Our timetable data covers until March 2025. Would you like me to check a date within that period?"
+- If station not found: "I couldn't find that station. Let me search for similar station names."
+- If no connections possible: "No direct route found. Let me search for journeys with connections."
 
 Your personality:
 - Helpful and knowledgeable about Scottish trains
@@ -390,58 +495,76 @@ Your personality:
 - Use occasional Scottish expressions naturally (but don't overdo it)
 - Be empathetic when trains are delayed or cancelled
 - Keep responses concise but informative
-- When users ask about "now" or "soon", use get_current_time to confirm the exact time
+- Proactively offer alternatives and helpful suggestions
 
 Tools you have access to:
 
 REAL-TIME DATA (for immediate/current information):
-- get_current_time: Get the current date and time (use when users ask about "now", "today", "soon", etc.)
-- resolve_station_name: Convert station names to CRS codes (use when users provide station names or you're unsure of the code)
-- get_departure_board: Get basic departure information for any Scottish station
-- get_next_departures_with_details: Get detailed departure info including cancellations and delays
-- get_service_details: Get complete journey details with all stops for a specific service
-- get_station_messages: Get network-wide or station-specific incident and disruption information
+- get_current_time: Get current date/time (ALWAYS use for "now"/"today"/"soon" queries)
+- resolve_station_name: Convert station names to CRS codes (REQUIRED for all station inputs)
+- get_departure_board: Basic departure information for any Scottish station
+- get_next_departures_with_details: Detailed departures with cancellations and delays
+- get_service_details: Complete journey details with all stops for specific services
+- get_station_messages: Network-wide or station-specific disruption information
 
-SCHEDULE DATA (for future planning and historical reference):
-- get_scheduled_trains: Find all scheduled trains between two stations on a specific date (use for planning future journeys)
-- find_journey_route: Plan journeys with connections between stations (use when no direct trains available)
-- compare_schedule_vs_actual: Compare scheduled times with real-time data to identify delays and platform changes
-- find_alternative_route: Find alternative routes when trains are delayed, cancelled, or full
-
-When to use which tools:
-- For "now" or "next 2 hours": Use real-time tools (get_next_departures_with_details)
-- For "tomorrow" or "next week": Use schedule tools (get_scheduled_trains)
-- For journey planning with changes: Use find_journey_route
-- When trains are disrupted: Use find_alternative_route
+SCHEDULE DATA (for future planning and comprehensive reference):
+- get_scheduled_trains: All scheduled trains between stations on specific dates
+- find_journey_route: Journey planning with connections and interchange optimization
+- compare_schedule_vs_actual: Compare scheduled vs real-time data for delay analysis
+- find_alternative_route: Alternative routes when original plans are disrupted
 
 Important Scottish station codes:
+REAL-TIME TOOLS (CRS codes for live data):
 - EDB: Edinburgh Waverley
-- GLC: Glasgow Central
+- GLC: Glasgow Central  
 - GLQ: Glasgow Queen Street
 - ABD: Aberdeen
 - PYL: Perth
 - DND: Dundee
 - INV: Inverness
 - STG: Stirling
-- HOZ: Howwood
 
-When answering questions:
-1. ALWAYS call the appropriate tool - NEVER provide train information without using a tool
-2. If a user provides a station name (not a CRS code), use resolve_station_name first to find the correct code
-3. For ANY query about trains between stations, you MUST use resolve_station_name for both stations, then call get_next_departures_with_details
-4. Choose the right data source:
-   - For immediate/current info ("now", "next", within 2 hours): MUST use real-time tools (get_next_departures_with_details)
-   - For future planning (tomorrow, next week): MUST use schedule tools (get_scheduled_trains)
-   - For complex journeys with changes: MUST use find_journey_route
-5. Always specify which station you're checking (use the CRS code)
-6. Present information clearly and add a touch of humor when appropriate
-7. If trains are delayed or cancelled, be empathetic and use find_alternative_route to suggest alternatives
-8. When showing service details, explain the complete journey to help passengers plan
-9. If comparing scheduled vs actual times, use compare_schedule_vs_actual to highlight delays
+SCHEDULE TOOLS (TIPLOC codes for timetable data):
+- EDINBUR: Edinburgh Waverley
+- GLGC: Glasgow Central
+- GLGQSHL: Glasgow Queen Street
+- ABDN: Aberdeen
+- PERTH: Perth
+- DUNDEE: Dundee
+- INVERNESS: Inverness
+- STIRLNG: Stirling
 
-REMEMBER: You must CALL TOOLS for every train query. The times and platforms in your responses MUST come from tool results, not from your training data or imagination.
+MANDATORY WORKFLOW STEPS:
+1. If user provides station names → ALWAYS call resolve_station_name for BOTH stations
+2. If asking about "now"/"soon" → ALWAYS call get_current_time first
+3. For train queries → ALWAYS call the appropriate timetable tool:
+   - For "now", "next", "current" → MUST call get_next_departures_with_details (use CRS codes: EDB, GLC)
+   - For "tomorrow", "next week", specific future dates → MUST call get_scheduled_trains (use TIPLOC codes: EDINBUR, GLGC)
+   - For journey planning with connections → MUST call find_journey_route (use TIPLOC codes)
+4. If delays found → Call compare_schedule_vs_actual for detailed analysis
+5. If cancellations → Call find_alternative_route automatically
+6. Always explain your data source choice to users
 
-Example tone: "Right, let me check the departures from Edinburgh Waverley for ye... *checks live board* Och, good news! The next train to Glasgow leaves at 14:30 from Platform 12 and it's running on time. That's the fast service, so ye'll be in Glasgow Central in about 50 minutes. Mind the gap!"
+CRITICAL STATION CODE MAPPING:
+- Real-time tools need CRS codes (3 letters): Edinburgh=EDB, Glasgow Central=GLC
+- Schedule tools need TIPLOC codes: Edinburgh=EDINBUR, Glasgow Central=GLGC
+- ALWAYS use the correct code type for each tool category!
+
+CRITICAL: You MUST complete every train query by calling a timetable tool. If you resolve stations but don't call a timetable tool, the user gets no train information!
+
+STATION CODE CONVERSION RULES:
+- When calling real-time tools (get_next_departures_with_details, get_departure_board): Use 3-letter CRS codes
+- When calling schedule tools (get_scheduled_trains, find_journey_route): Use TIPLOC codes 
+- Edinburgh: CRS=EDB, TIPLOC=EDINBUR
+- Glasgow Central: CRS=GLC, TIPLOC=GLGC
+- If resolve_station_name returns a CRS code but you need TIPLOC, convert using the mappings above
+- IMPORTANT: For schedule tools, you can pass station names directly (like 'Edinburgh', 'Glasgow Central') and the tools will resolve to TIPLOC automatically
+
+REMEMBER: Every train query MUST use tools. Present information clearly with Scottish charm, and always be ready to help with alternatives when things go wrong!
+
+WORKFLOW COMPLETION RULE: After resolving station names, you MUST immediately call the appropriate timetable tool to get train information. Never end your response without providing actual train data from tools.
+
+Example enhanced tone: "Right, let me check what's running from Edinburgh to Glasgow for ye... *checking both live departures and scheduled services* Och! I can see the 14:30 service is running 5 minutes late due to a signal issue, but the 14:45 is bang on time. Since ye mentioned tomorrow, I'll also check the full timetable - there are hourly services starting from 06:00. Would ye like me to find alternatives if that delay gets worse?"
 """
         
         # Initialize conversation with system prompt
@@ -651,6 +774,7 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                     return f"Error: {result.message}"
             
             elif tool_name == "get_next_departures_with_details":
+                logger.info(f"Executing get_next_departures_with_details with args: {tool_args}")
                 filter_list = tool_args.get("filter_list")
                 result = self.train_tools.get_next_departures_with_details(
                     station_code=tool_args["station_code"],
@@ -678,6 +802,7 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                             for train in result.trains
                         ]
                     }
+                    logger.info(f"Set timetable data: {len(result.trains)} detailed departures from {result.station}")
                     
                     output = f"Detailed departures from {result.station}:\n"
                     for train in result.trains:
@@ -692,6 +817,7 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                         output += f" (Operator: {train.operator})\n"
                     return output
                 else:
+                    logger.warning(f"get_next_departures_with_details failed: {result.message}")
                     return f"Error: {result.message}"
             
             elif tool_name == "get_service_details":
@@ -737,10 +863,18 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
             
             # Timetable tools (schedule data)
             elif tool_name == "get_scheduled_trains" and self.timetable_tools:
-                result = self.timetable_tools.get_scheduled_trains(**tool_args)
+                logger.info(f"Executing get_scheduled_trains with args: {tool_args}")
+                try:
+                    result = self.timetable_tools.get_scheduled_trains(**tool_args)
+                    logger.info(f"get_scheduled_trains result: success={result.get('success')}, error={result.get('error')}, trains_count={len(result.get('trains', []))}")
+                except Exception as e:
+                    logger.error(f"Exception in get_scheduled_trains: {e}", exc_info=True)
+                    return f"Error calling scheduled trains: {e}"
+                    
                 if result.get('success'):
                     trains = result.get('trains', [])
                     if not trains:
+                        logger.info(f"No scheduled trains found from {result['from']} to {result['to']} on {result['date']}")
                         return f"No scheduled trains found from {result['from']} to {result['to']} on {result['date']}."
                     
                     # Store structured timetable data
@@ -759,6 +893,7 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                             for train in trains
                         ]
                     }
+                    logger.info(f"Set timetable data: {len(trains)} scheduled trains from {result['from']} to {result['to']}")
                     
                     output = f"Scheduled trains from {result['from']} to {result['to']} on {result['date']} ({result['count']} found):\n"
                     for train in trains:
@@ -766,6 +901,7 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                         output += f"  Train: {train['headcode']}, Operator: {train['operator']}, Platform {train.get('departure_platform', 'TBA')}\n"
                     return output
                 else:
+                    logger.warning(f"get_scheduled_trains failed: {result.get('error', 'Unknown error')}")
                     return f"Error: {result.get('error', 'Unknown error')}"
             
             elif tool_name == "find_journey_route" and self.timetable_tools:
@@ -841,6 +977,138 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                 else:
                     return f"Error: {result.get('error', 'Unknown error')}"
             
+            # Enhanced geographical intelligence tools
+            elif tool_name == "plan_journey_with_context" and self.timetable_tools:
+                logger.info(f"Executing enhanced journey planning with geographical context: {tool_args}")
+                result = self.timetable_tools.plan_journey_with_context(**tool_args)
+                if result.get('success'):
+                    journeys = result.get('journeys', [])
+                    from_options = result.get('from_options', [])
+                    to_options = result.get('to_options', [])
+                    
+                    output = f"Journey planning from '{result['from_place']}' to '{result['to_place']}' on {result['date']}\n\n"
+                    
+                    # Show resolved stations with geographical context
+                    if from_options:
+                        output += f"Departure options for '{result['from_place']}':\n"
+                        for station in from_options:
+                            geo_context = station.get('geographical_context', {})
+                            area = geo_context.get('area', 'Unknown area')
+                            output += f"  • {station['display_name']} ({station['crs_code']}) - {area}\n"
+                        output += "\n"
+                    
+                    if to_options:
+                        output += f"Arrival options for '{result['to_place']}':\n"
+                        for station in to_options:
+                            geo_context = station.get('geographical_context', {})
+                            area = geo_context.get('area', 'Unknown area')
+                            output += f"  • {station['display_name']} ({station['crs_code']}) - {area}\n"
+                        output += "\n"
+                    
+                    if journeys:
+                        output += f"Journey options ({len(journeys)} found):\n\n"
+                        for idx, journey in enumerate(journeys, 1):
+                            output += f"Journey {idx}: {journey['from_station']['display_name']} → {journey['to_station']['display_name']}\n"
+                            output += f"  Duration: {journey['total_duration']} mins, Changes: {journey['changes']}\n"
+                            
+                            geo_summary = journey.get('geographical_summary', {})
+                            if geo_summary.get('crosses_regions'):
+                                output += f"  Route crosses regions: {geo_summary.get('from_area')} → {geo_summary.get('to_area')}\n"
+                            
+                            for leg_idx, leg in enumerate(journey['legs'], 1):
+                                output += f"  Leg {leg_idx}: {leg['from']} ({leg['departure']}) → {leg['to']} ({leg['arrival']})\n"
+                                output += f"    Train {leg['headcode']} ({leg['operator']}) - {leg['duration']} mins\n"
+                            output += "\n"
+                        
+                        # Store timetable data for the best journey
+                        best_journey = journeys[0]
+                        self.last_timetable_data = {
+                            "type": "enhanced_journey",
+                            "station": f"{best_journey['from_station']['display_name']} to {best_journey['to_station']['display_name']}",
+                            "trains": [
+                                {
+                                    "std": leg['departure'],
+                                    "etd": leg['arrival'],
+                                    "destination": leg['to'],
+                                    "platform": leg.get('platform', 'TBA'),
+                                    "operator": leg['operator'],
+                                    "is_cancelled": False
+                                }
+                                for leg in best_journey['legs']
+                            ]
+                        }
+                        logger.info(f"Set enhanced journey timetable data for {len(best_journey['legs'])} legs")
+                    else:
+                        output += "No suitable journeys found with the specified criteria.\n"
+                    
+                    return output
+                else:
+                    return f"Error in enhanced journey planning: {result.get('error', 'Unknown error')}"
+            
+            elif tool_name == "search_stations_by_place" and self.timetable_tools:
+                logger.info(f"Searching stations by place: {tool_args}")
+                place_name = tool_args["place_name"]
+                limit = tool_args.get("limit", 10)
+                
+                stations = self.timetable_tools.search_stations_by_place(place_name, limit)
+                
+                if not stations:
+                    return f"No stations found for '{place_name}'. Try a different place name or be more specific."
+                
+                output = f"Railway stations for '{place_name}' ({len(stations)} found):\n\n"
+                for station in stations:
+                    geo_context = station.get('geographical_context', {})
+                    output += f"• {station['display_name']} ({station['crs_code']})\n"
+                    
+                    area = geo_context.get('area')
+                    region = geo_context.get('region')
+                    
+                    if area:
+                        output += f"  Location: {area}"
+                        if region and region != area:
+                            output += f", {region}"
+                        output += "\n"
+                    
+                    if station.get('distance_info'):
+                        output += f"  Distance: {station['distance_info']}\n"
+                    
+                    output += "\n"
+                
+                return output
+            
+            elif tool_name == "get_station_with_context" and self.timetable_tools:
+                logger.info(f"Getting station context: {tool_args}")
+                station_input = tool_args["station_input"]
+                
+                station_info = self.timetable_tools.get_station_with_context(station_input)
+                
+                if not station_info:
+                    return f"Station '{station_input}' not found. Please check the station name or code."
+                
+                output = f"Station Information for {station_info['display_name']}:\n\n"
+                output += f"CRS Code: {station_info['crs_code']}\n"
+                output += f"TIPLOC: {station_info['tiploc']}\n"
+                
+                geo_context = station_info.get('geographical_context', {})
+                if geo_context:
+                    output += f"\nGeographical Context:\n"
+                    if geo_context.get('area'):
+                        output += f"  Area: {geo_context['area']}\n"
+                    if geo_context.get('region'):
+                        output += f"  Region: {geo_context['region']}\n"
+                    if geo_context.get('country'):
+                        output += f"  Country: {geo_context['country']}\n"
+                
+                if station_info.get('search_context'):
+                    search_ctx = station_info['search_context']
+                    output += f"\nAdditional Context:\n"
+                    if search_ctx.get('aliases'):
+                        output += f"  Also known as: {', '.join(search_ctx['aliases'])}\n"
+                    if search_ctx.get('nearby_places'):
+                        output += f"  Nearby: {', '.join(search_ctx['nearby_places'])}\n"
+                
+                return output
+            
             else:
                 return f"Unknown tool: {tool_name}"
                 
@@ -860,6 +1128,9 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
         try:
             # Clear previous timetable data
             self.last_timetable_data = None
+            logger.info(f"Chat started: cleared timetable data for new query")
+            logger.info(f"ScotRail agent starting chat with message: {user_message[:50]}...")
+            logger.info(f"Agent has {len(self.tools)} tools available")
             
             # Add user message to conversation history
             self.conversation_history.append({
@@ -878,12 +1149,19 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                        f"Messages: {len(self.conversation_history)}, "
                        f"Using {'tiktoken' if TIKTOKEN_AVAILABLE else 'estimation'}")
             
+            # Force tool calling for train queries to ensure agents call timetable tools
+            tool_choice = "auto"
+            if any(keyword in user_message.lower() for keyword in ["train", "edinburgh", "glasgow", "tomorrow", "time", "schedule", "departure"]):
+                # Use required tool choice that forces ANY function call
+                tool_choice = "required"
+                logger.info("Detected train query - forcing tool calls")
+            
             # Get response from OpenAI with tools
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.conversation_history,
                 tools=self.tools,
-                tool_choice="auto",
+                tool_choice=tool_choice,
                 temperature=0.7,
                 max_tokens=MAX_TOKENS_PER_RESPONSE
             )
@@ -891,8 +1169,11 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
             response_message = response.choices[0].message
             tool_calls = response_message.tool_calls
             
+            logger.info(f"OpenAI response received - tool_calls: {len(tool_calls) if tool_calls else 0}")
+            
             # Handle tool calls
             if tool_calls:
+                logger.info(f"Processing {len(tool_calls)} tool calls")
                 # Add assistant's tool call message to history
                 self.conversation_history.append({
                     "role": "assistant",
@@ -917,6 +1198,7 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                     
                     # Execute the tool
                     function_response = self._execute_tool(function_name, function_args)
+                    logger.info(f"Tool executed: {function_name}, timetable_data_set: {self.last_timetable_data is not None}")
                     
                     # Add tool response to history
                     self.conversation_history.append({
@@ -931,11 +1213,63 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
                     second_response = self.client.chat.completions.create(
                         model=self.model,
                         messages=self.conversation_history,
+                        tools=self.tools,
+                        tool_choice="auto",
                         temperature=0.7,
                         max_tokens=MAX_TOKENS_PER_RESPONSE
                     )
                     
-                    final_message = second_response.choices[0].message.content
+                    second_message = second_response.choices[0].message
+                    
+                    # Handle potential tool calls in the second response
+                    if second_message.tool_calls:
+                        logger.info("Second response also has tool calls - processing them")
+                        # Add the assistant's message with tool calls
+                        self.conversation_history.append({
+                            "role": "assistant",
+                            "content": second_message.content,
+                            "tool_calls": [
+                                {
+                                    "id": tc.id,
+                                    "type": tc.type,
+                                    "function": {
+                                        "name": tc.function.name,
+                                        "arguments": tc.function.arguments
+                                    }
+                                }
+                                for tc in second_message.tool_calls
+                            ]
+                        })
+                        
+                        # Execute the additional tool calls
+                        for tool_call in second_message.tool_calls:
+                            function_name = tool_call.function.name
+                            function_args = json.loads(tool_call.function.arguments)
+                            function_response = self._execute_tool(function_name, function_args)
+                            
+                            self.conversation_history.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": function_name,
+                                "content": function_response
+                            })
+                        
+                        # Get final response after additional tool calls
+                        third_response = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=self.conversation_history,
+                            temperature=0.7,
+                            max_tokens=MAX_TOKENS_PER_RESPONSE
+                        )
+                        final_message = third_response.choices[0].message.content
+                    else:
+                        final_message = second_message.content
+                    
+                    # Critical check: If this was a train query but no timetable data was set, force it
+                    if (any(keyword in user_message.lower() for keyword in ["train", "edinburgh", "glasgow", "tomorrow", "time", "schedule", "departure"]) 
+                        and self.last_timetable_data is None):
+                        logger.warning("Train query completed but no timetable data was set - this should not happen!")
+                        final_message += "\n\nI'm sorry, I should have provided specific train information but didn't call the right tools. Let me know what specific journey you need and I'll make sure to get you the timetable details!"
                     
                     # Add final assistant response to history
                     self.conversation_history.append({
@@ -968,6 +1302,7 @@ Example tone: "Right, let me check the departures from Edinburgh Waverley for ye
             
             else:
                 # No tool calls, just return the response
+                logger.info(f"No tool calls made by OpenAI - returning direct response: {response_message.content[:100]}...")
                 assistant_message = response_message.content
                 
                 # Add assistant response to conversation history

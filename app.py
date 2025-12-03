@@ -28,6 +28,13 @@ config = get_config()
 
 app = Flask(__name__)
 app.secret_key = config.flask_secret_key
+
+# Configure SQL query logging
+sql_logger = logging.getLogger('sql_queries')
+sql_handler = logging.StreamHandler()
+sql_handler.setFormatter(logging.Formatter('%(asctime)s - SQL_QUERY - %(levelname)s - %(message)s'))
+sql_logger.addHandler(sql_handler)
+sql_logger.setLevel(logging.INFO)
 app.config['TESTING'] = config.testing
 
 # Initialize limiter - will be enabled/disabled based on runtime configuration
@@ -180,7 +187,15 @@ def get_or_create_agent(session_id):
             
             # Always use DI container - this allows test mocks to be injected
             container = get_container()
-            agents[session_id] = container.create_agent(ScotRailAgent)
+            agent = container.create_agent(ScotRailAgent)
+            
+            # Debug: Check if agent has all required tools
+            logger.info(f"Agent components - train_tools: {hasattr(agent, 'train_tools')}, "
+                       f"timetable_tools: {hasattr(agent, 'timetable_tools')}, "
+                       f"station_resolver: {hasattr(agent, 'station_resolver')}, "
+                       f"openai_client: {hasattr(agent, 'client')}")
+            
+            agents[session_id] = agent
             
             session_metadata[session_id] = datetime.now()
             logger.info(f"Created new agent for session {session_id[:8]}... (total sessions: {len(agents)})")
@@ -265,7 +280,14 @@ def chat():
             return jsonify({'error': error}), 500
         
         # Get response from agent
-        response = agent.chat(user_message)
+        logger.info(f"Before agent.chat() - last_timetable_data: {getattr(agent, 'last_timetable_data', 'NOT_SET')}")
+        try:
+            response = agent.chat(user_message)
+            logger.info(f"After agent.chat() - last_timetable_data: {getattr(agent, 'last_timetable_data', 'NOT_SET')}")
+            logger.info(f"Agent response preview: {response[:100]}...")
+        except Exception as e:
+            logger.error(f"Error during agent.chat(): {e}", exc_info=True)
+            raise
         
         duration = time.time() - start_time
         logger.info(f"Chat response sent to session {session_id[:8]}... in {duration:.2f}s, response length: {len(response)} chars")
@@ -282,6 +304,15 @@ def chat():
             logger.info(f"Including timetable data: {agent.last_timetable_data.get('type')} with {len(agent.last_timetable_data.get('trains', []))} trains")
         else:
             logger.info(f"No timetable data available (hasattr: {hasattr(agent, 'last_timetable_data')}, value: {getattr(agent, 'last_timetable_data', None)})")
+            # Additional debugging
+            if hasattr(agent, 'last_timetable_data'):
+                logger.info(f"Agent has last_timetable_data attribute, value type: {type(agent.last_timetable_data)}")
+                if agent.last_timetable_data is None:
+                    logger.info("Timetable data is explicitly None - agent may not have called timetable tools")
+                else:
+                    logger.info(f"Timetable data exists but condition failed: {agent.last_timetable_data}")
+            else:
+                logger.error("Agent missing last_timetable_data attribute entirely")
         
         return jsonify(result)
     

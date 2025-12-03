@@ -82,3 +82,4 @@ timetable/*.txt
 *.db
 coverage.json
 *.code-workspace
+docs/toc-full

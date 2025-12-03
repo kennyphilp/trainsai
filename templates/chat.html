@@ -495,6 +495,7 @@
             addLoadingMessage();
 
             try {
+                console.log('Sending request to /api/chat...');
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: {
@@ -503,7 +504,19 @@
                     body: JSON.stringify({ message: message })
                 });
 
-                const data = await response.json();
+                console.log('Response received:', response.status, response.statusText);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const responseText = await response.text();
+                console.log('Response text length:', responseText.length);
+                console.log('Response text preview:', responseText.substring(0, 200));
+                
+                const data = JSON.parse(responseText);
+                console.log('Parsed JSON keys:', Object.keys(data));
+                console.log('Success field:', data.success, typeof data.success);
 
                 // Remove loading
                 removeLoadingMessage();
@@ -517,8 +530,11 @@
                 }
             } catch (error) {
                 removeLoadingMessage();
-                addMessage('agent', 'Connection error. Please try again.');
-                console.error('Error:', error);
+                console.error('Full error details:', error);
+                console.error('Error name:', error.name);
+                console.error('Error message:', error.message);
+                console.error('Error stack:', error.stack);
+                addMessage('agent', `Connection error: ${error.message}. Please try again.`);
             } finally {
                 userMessage.disabled = false;
                 sendBtn.disabled = false;
@@ -532,7 +548,30 @@
             
             const title = document.createElement('div');
             title.className = 'timetable-title';
-            title.textContent = `📍 ${timetable.station}`;
+            // Format the station title properly
+            let stationTitle;
+            if (typeof timetable.station === 'string' && timetable.station.includes(' to ')) {
+                // Extract route information from string that contains object representations
+                const parts = timetable.station.split(' to ');
+                if (parts.length === 2) {
+                    try {
+                        const fromMatch = parts[0].match(/'name': '([^']+)'/);
+                        const toMatch = parts[1].match(/'name': '([^']+)'/);
+                        if (fromMatch && toMatch) {
+                            stationTitle = `${fromMatch[1]} → ${toMatch[1]}`;
+                        } else {
+                            stationTitle = timetable.station;
+                        }
+                    } catch {
+                        stationTitle = timetable.station;
+                    }
+                } else {
+                    stationTitle = timetable.station;
+                }
+            } else {
+                stationTitle = timetable.station;
+            }
+            title.textContent = `📍 ${stationTitle}`;
             container.appendChild(title);
             
             const table = document.createElement('table');
@@ -547,9 +586,9 @@
                 headerRow.appendChild(th);
             });
             thead.appendChild(headerRow);
-            table.appendChil
+            table.appendChild(thead);
             // Body
-            const tbody = document.crealement('tbody');
+            const tbody = document.createElement('tbody');
             timetable.trains.forEach(train => {
                 const row = document.createElement('tr');
                 if (train.is_cancelled) {
@@ -563,7 +602,20 @@
                 
                 // Destination
                 const destCell = document.createElement('td');
-                destCell.textContent = train.destination;
+                // Handle destination object or string
+                if (typeof train.destination === 'object' && train.destination !== null) {
+                    if (train.destination.name) {
+                        destCell.textContent = train.destination.name;
+                    } else if (train.destination.display_name) {
+                        destCell.textContent = train.destination.display_name;
+                    } else {
+                        destCell.textContent = 'Unknown';
+                    }
+                } else if (typeof train.destination === 'string') {
+                    destCell.textContent = train.destination;
+                } else {
+                    destCell.textContent = 'Unknown';
+                }
                 row.appendChild(destCell);
                 
                 // Platform
